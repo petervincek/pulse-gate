@@ -1,0 +1,11 @@
+[package]
+name = "pulse-gate"
+version = "0.1.0"
+edition = "2024"
+
+authors = ["Peter Vincek"]
+description = "An enterprise-grade, dynamic API Gateway & metered billing proxy built in Rust with Axum, Redis, PostgreSQL, and Keycloak."
+
+license = "Apache-2.0"
+
+[dependencies]
