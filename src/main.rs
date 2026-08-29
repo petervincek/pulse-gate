@@ -4,10 +4,12 @@ use anyhow::Result;
 use axum::Router;
 use pulse_gate::{
     api::health::health_router,
+    app::state::AppState,
     core::{
         config::{AppConfig, ConfigManager, LoggingConfig},
         logging::LogManager,
     },
+    model::connection_redis::build_redis_pool,
 };
 use tracing_appender::non_blocking::WorkerGuard;
 
@@ -46,13 +48,21 @@ async fn main() -> Result<()> {
     // init/setup the logging
     let _log_guard = init_logger(&app_config.logging_config, &log_manager);
 
+    // create the Redis connection pool
+    let redis_pool = build_redis_pool(&app_config).await?;
+
+    // create application state with shared dependencies
+    let app_state = AppState::new(redis_pool, "PulseGate");
+
     println!("PulseGate starting ...");
 
     // create health router
     let health_router = health_router();
 
     // create the main/root level application router
-    let app_router = Router::new().nest("/health", health_router);
+    let app_router = Router::new()
+        .nest("/health", health_router)
+        .with_state(app_state);
 
     // create a TCP listener
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;

@@ -23,5 +23,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "std", "env-filter"] }
 tracing-appender = "0.2"
 
+redis = { version = "1.6", features = ["aio", "tokio-comp"] }
+deadpool-redis = "0.23"
+
 [dev-dependencies]
 tempfile = "3"
