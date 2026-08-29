@@ -4,7 +4,7 @@ use redis::AsyncCommands;
 use std::time::Duration;
 use tokio::time::sleep;
 
-use crate::core::config::AppConfig;
+use crate::core::config::common::AppConfig;
 
 const REDIS_STARTUP_RETRIES: usize = 3;
 const REDIS_STARTUP_RETRY_DELAY: Duration = Duration::from_millis(500);

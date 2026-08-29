@@ -9,7 +9,7 @@ use chrono::{Local, NaiveDate};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::core::config::{ConfigManager, LoggingConfig};
+use crate::core::config::common::{ConfigManager, LoggingConfig};
 
 pub struct LogManager {
     config_manager: Arc<ConfigManager>,

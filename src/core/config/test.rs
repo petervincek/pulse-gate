@@ -1,179 +1,19 @@
-use std::{env, fs, path::PathBuf};
-
-use anyhow::Result;
-use directories::ProjectDirs;
-use serde::{Deserialize, Serialize};
-
-const REDIS_URL: &str = "REDIS_URL";
-const REDIS_POOL_MAX_SIZE: &str = "REDIS_POOL_MAX_SIZE";
-const REDIS_POOL_TIMEOUT_MS: &str = "REDIS_POOL_TIMEOUT_MS";
-const REDIS_POOL_WAIT_TIMEOUT_MS: &str = "REDIS_POOL_WAIT_TIMEOUT_MS";
-const REDIS_POOL_RECYCLE_SECONDS: &str = "REDIS_POOL_RECYCLE_SECONDS";
-const REDIS_VALIDATE_ON_STARTUP: &str = "REDIS_VALIDATE_ON_STARTUP";
-
-/// `AppConfig` contains the whole app configuration
-#[derive(Debug, Serialize, Deserialize, Default, PartialEq, Clone)]
-pub struct AppConfig {
-    #[serde(default)]
-    pub logging_config: LoggingConfig,
-    #[serde(default)]
-    pub redis_config: RedisConfig,
-}
-
-impl AppConfig {
-    pub fn merge_with_env(mut self) -> Self {
-        if let Ok(url) = env::var(REDIS_URL) {
-            self.redis_config.url = url;
-        }
-
-        self.redis_config.pool_max_size = env::var(REDIS_POOL_MAX_SIZE)
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(self.redis_config.pool_max_size);
-
-        self.redis_config.pool_timeout_ms = env::var(REDIS_POOL_TIMEOUT_MS)
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(self.redis_config.pool_timeout_ms);
-
-        self.redis_config.pool_wait_timeout_ms = env::var(REDIS_POOL_WAIT_TIMEOUT_MS)
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(self.redis_config.pool_wait_timeout_ms);
-
-        self.redis_config.pool_recycle_seconds = env::var(REDIS_POOL_RECYCLE_SECONDS)
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(self.redis_config.pool_recycle_seconds);
-
-        self.redis_config.validate_on_startup = env::var(REDIS_VALIDATE_ON_STARTUP)
-            .ok()
-            .and_then(|value| {
-                if value == "1" || value.eq_ignore_ascii_case("true") {
-                    Some(true)
-                } else if value == "0" || value.eq_ignore_ascii_case("false") {
-                    Some(false)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(self.redis_config.validate_on_startup);
-
-        self
-    }
-}
-
-/// `LoggingConfig` contains logging specific configuration
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-#[serde(default)]
-pub struct LoggingConfig {
-    pub log_file_name: String,
-    pub log_level: String,
-    pub max_log_files: usize,
-    pub max_log_file_size_mb: usize,
-}
-
-/// Provides default starting values for logging configuration
-impl Default for LoggingConfig {
-    fn default() -> Self {
-        Self {
-            log_file_name: String::from("pulse-gate.log"),
-            log_level: String::from("info"),
-            max_log_files: 14,
-            max_log_file_size_mb: 10,
-        }
-    }
-}
-
-/// `RedisConfig` contains redis database specific configuration
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-#[serde(default)]
-pub struct RedisConfig {
-    pub url: String,
-    pub pool_max_size: usize,
-    pub pool_timeout_ms: u64,
-    pub pool_wait_timeout_ms: u64,
-    pub pool_recycle_seconds: u64,
-    pub validate_on_startup: bool,
-}
-
-/// Provides default starting values for logging configuration
-impl Default for RedisConfig {
-    fn default() -> Self {
-        Self {
-            url: String::from("redis://127.0.0.1:6379/0"),
-            pool_max_size: 16,
-            pool_timeout_ms: 3000,
-            pool_wait_timeout_ms: 500,
-            pool_recycle_seconds: 3600,
-            validate_on_startup: true,
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct ConfigManager {
-    config_dir: Option<PathBuf>,
-}
-
-/// `ConfigManager` is responsible for getting and loading the configuration
-impl ConfigManager {
-    // creates new instance of config manager
-    pub fn new(config_dir: Option<PathBuf>) -> Self {
-        Self { config_dir }
-    }
-
-    // get the native OS path of the configuration directory for this tool
-    pub fn get_config_dir(&self) -> PathBuf {
-        match &self.config_dir {
-            None => ProjectDirs::from("org", "vincek", "pulse-gate")
-                .map(|proj| proj.config_dir().to_path_buf())
-                .unwrap_or_else(|| PathBuf::from("./config")),
-            Some(provided_config_dir) => provided_config_dir.clone(),
-        }
-    }
-
-    /// `get_config_file_path` return the path to the main configuration file for this application
-    pub fn get_config_file_path(&self) -> PathBuf {
-        self.get_config_dir().join("config.toml")
-    }
-
-    /// Loads configuration from disk or generates a fallback template if empty
-    /// initially no support to override this configuration with values
-    /// from environment variables or command line flags/arguments
-    /// just raw parsing of the file without any business related logic like validation
-    pub fn load_or_create(&self) -> anyhow::Result<AppConfig> {
-        let config_dir = self.get_config_dir();
-        fs::create_dir_all(&config_dir)?;
-
-        let config_file = self.get_config_file_path();
-
-        if !config_file.exists() {
-            // Seed an empty configuration template file with default values
-            let default_config = AppConfig::default();
-
-            let toml_string = toml::to_string_pretty(&default_config)?;
-            fs::write(&config_file, toml_string)?;
-            return Ok(default_config);
-        }
-
-        let content = fs::read_to_string(config_file)?;
-        let config: AppConfig = toml::from_str(&content)?;
-        Ok(config)
-    }
-
-    /// `save_config` saves/persists the provided application config to the config file
-    pub fn save_config(&self, app_config: &AppConfig) -> Result<()> {
-        let toml_string = toml::to_string_pretty(app_config)?;
-        let config_file = self.get_config_file_path();
-        fs::write(&config_file, toml_string)?;
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+
+    use crate::core::config::{
+        common::{AppConfig, ConfigManager},
+        postgres::{
+            POSTGRES_ACQUIRE_TIMEOUT_MS, POSTGRES_CONNECT_TIMEOUT_MS, POSTGRES_IDLE_TIMEOUT_SECS,
+            POSTGRES_MAX_CONNECTIONS, POSTGRES_MAX_LIFETIME_SECS, POSTGRES_MIN_CONNECTIONS,
+            POSTGRES_SSL_MODE, POSTGRES_STATEMENT_TIMEOUT_MS, POSTGRES_URL,
+            POSTGRES_VALIDATE_ON_STARTUP,
+        },
+        redis::{
+            REDIS_POOL_MAX_SIZE, REDIS_POOL_RECYCLE_SECONDS, REDIS_POOL_TIMEOUT_MS,
+            REDIS_POOL_WAIT_TIMEOUT_MS, REDIS_URL, REDIS_VALIDATE_ON_STARTUP,
+        },
+    };
     use std::{env, fs, sync::Mutex};
     use tempfile::tempdir;
 
@@ -201,6 +41,21 @@ mod tests {
             env::remove_var(REDIS_POOL_WAIT_TIMEOUT_MS);
             env::remove_var(REDIS_POOL_RECYCLE_SECONDS);
             env::remove_var(REDIS_VALIDATE_ON_STARTUP);
+        }
+    }
+
+    fn clear_postgres_env_vars() {
+        unsafe {
+            env::remove_var(POSTGRES_URL);
+            env::remove_var(POSTGRES_MAX_CONNECTIONS);
+            env::remove_var(POSTGRES_MIN_CONNECTIONS);
+            env::remove_var(POSTGRES_CONNECT_TIMEOUT_MS);
+            env::remove_var(POSTGRES_ACQUIRE_TIMEOUT_MS);
+            env::remove_var(POSTGRES_IDLE_TIMEOUT_SECS);
+            env::remove_var(POSTGRES_MAX_LIFETIME_SECS);
+            env::remove_var(POSTGRES_VALIDATE_ON_STARTUP);
+            env::remove_var(POSTGRES_SSL_MODE);
+            env::remove_var(POSTGRES_STATEMENT_TIMEOUT_MS);
         }
     }
 
@@ -289,18 +144,82 @@ mod tests {
     }
 
     #[test]
-    fn merge_with_env_accepts_true_for_validate_on_startup() {
+    fn save_config_roundtrip_preserves_postgres_values() {
+        let dir = tempdir().expect("failed to create temp dir");
+        let manager = ConfigManager::new(Some(dir.path().to_path_buf()));
+
+        let mut expected = AppConfig::default();
+        expected.postgres_config.url = "postgres://example.test:5432/sample".to_string();
+        expected.postgres_config.max_connections = 22;
+        expected.postgres_config.min_connections = 5;
+        expected.postgres_config.connect_timeout_ms = 9000;
+        expected.postgres_config.acquire_timeout_ms = 12000;
+        expected.postgres_config.idle_timeout_secs = 1500;
+        expected.postgres_config.max_lifetime_secs = 7200;
+        expected.postgres_config.validate_on_startup = false;
+        expected.postgres_config.ssl_mode = "require".to_string();
+        expected.postgres_config.statement_timeout_ms = Some(60000);
+
+        manager.save_config(&expected).expect("save_config failed");
+        let actual = manager.load_or_create().expect("load_or_create failed");
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn merge_with_env_accepts_true_for_postgres_validate_on_startup() {
         with_env_lock(|| {
             clear_redis_env_vars();
+            clear_postgres_env_vars();
             unsafe {
-                env::set_var(REDIS_VALIDATE_ON_STARTUP, "TRUE");
+                env::set_var(POSTGRES_VALIDATE_ON_STARTUP, "TRUE");
+            }
+
+            let merged = AppConfig::default().merge_with_env();
+
+            assert!(merged.postgres_config.validate_on_startup);
+
+            clear_postgres_env_vars();
+            clear_redis_env_vars();
+        });
+    }
+
+    #[test]
+    fn merge_with_env_rejects_invalid_boolean_values_for_postgres_validate_on_startup() {
+        with_env_lock(|| {
+            clear_redis_env_vars();
+            clear_postgres_env_vars();
+            unsafe {
+                env::set_var(POSTGRES_VALIDATE_ON_STARTUP, "maybe");
             }
 
             let original = AppConfig::default();
-            let merged = original.merge_with_env();
+            let merged = original.clone().merge_with_env();
 
-            assert!(merged.redis_config.validate_on_startup);
+            assert_eq!(
+                merged.postgres_config.validate_on_startup,
+                original.postgres_config.validate_on_startup
+            );
 
+            clear_postgres_env_vars();
+            clear_redis_env_vars();
+        });
+    }
+
+    #[test]
+    fn merge_with_env_overrides_postgres_ssl_mode() {
+        with_env_lock(|| {
+            clear_redis_env_vars();
+            clear_postgres_env_vars();
+            unsafe {
+                env::set_var(POSTGRES_SSL_MODE, "require");
+            }
+
+            let merged = AppConfig::default().merge_with_env();
+
+            assert_eq!(merged.postgres_config.ssl_mode, "require");
+
+            clear_postgres_env_vars();
             clear_redis_env_vars();
         });
     }
@@ -404,12 +323,21 @@ mod tests {
     fn merge_with_env_ignores_invalid_numeric_values() {
         with_env_lock(|| {
             clear_redis_env_vars();
+            clear_postgres_env_vars();
             unsafe {
                 env::set_var(REDIS_POOL_MAX_SIZE, "not-a-number");
                 env::set_var(REDIS_POOL_TIMEOUT_MS, "n/a");
                 env::set_var(REDIS_POOL_WAIT_TIMEOUT_MS, "bad");
                 env::set_var(REDIS_POOL_RECYCLE_SECONDS, "invalid");
                 env::set_var(REDIS_VALIDATE_ON_STARTUP, "0");
+                env::set_var(POSTGRES_MAX_CONNECTIONS, "invalid");
+                env::set_var(POSTGRES_MIN_CONNECTIONS, "bad");
+                env::set_var(POSTGRES_CONNECT_TIMEOUT_MS, "xxx");
+                env::set_var(POSTGRES_ACQUIRE_TIMEOUT_MS, "n/a");
+                env::set_var(POSTGRES_IDLE_TIMEOUT_SECS, "oops");
+                env::set_var(POSTGRES_MAX_LIFETIME_SECS, "invalid");
+                env::set_var(POSTGRES_STATEMENT_TIMEOUT_MS, "not-a-number");
+                env::set_var(POSTGRES_VALIDATE_ON_STARTUP, "false");
             }
 
             let original = AppConfig::default();
@@ -433,6 +361,116 @@ mod tests {
             );
             assert_eq!(merged.redis_config.validate_on_startup, false);
 
+            assert_eq!(
+                merged.postgres_config.max_connections,
+                original.postgres_config.max_connections
+            );
+            assert_eq!(
+                merged.postgres_config.min_connections,
+                original.postgres_config.min_connections
+            );
+            assert_eq!(
+                merged.postgres_config.connect_timeout_ms,
+                original.postgres_config.connect_timeout_ms
+            );
+            assert_eq!(
+                merged.postgres_config.acquire_timeout_ms,
+                original.postgres_config.acquire_timeout_ms
+            );
+            assert_eq!(
+                merged.postgres_config.idle_timeout_secs,
+                original.postgres_config.idle_timeout_secs
+            );
+            assert_eq!(
+                merged.postgres_config.max_lifetime_secs,
+                original.postgres_config.max_lifetime_secs
+            );
+            assert_eq!(
+                merged.postgres_config.statement_timeout_ms,
+                original.postgres_config.statement_timeout_ms
+            );
+            assert_eq!(merged.postgres_config.validate_on_startup, false);
+
+            clear_postgres_env_vars();
+            clear_redis_env_vars();
+        });
+    }
+
+    #[test]
+    fn merge_with_env_overrides_postgres_values() {
+        with_env_lock(|| {
+            clear_redis_env_vars();
+            clear_postgres_env_vars();
+            unsafe {
+                env::set_var(POSTGRES_URL, "postgres://example.com:5432/sample");
+                env::set_var(POSTGRES_MAX_CONNECTIONS, "32");
+                env::set_var(POSTGRES_MIN_CONNECTIONS, "6");
+                env::set_var(POSTGRES_CONNECT_TIMEOUT_MS, "7000");
+                env::set_var(POSTGRES_ACQUIRE_TIMEOUT_MS, "10000");
+                env::set_var(POSTGRES_IDLE_TIMEOUT_SECS, "1200");
+                env::set_var(POSTGRES_MAX_LIFETIME_SECS, "3600");
+                env::set_var(POSTGRES_VALIDATE_ON_STARTUP, "false");
+                env::set_var(POSTGRES_SSL_MODE, "require");
+                env::set_var(POSTGRES_STATEMENT_TIMEOUT_MS, "45000");
+            }
+
+            let merged = AppConfig::default().merge_with_env();
+
+            assert_eq!(
+                merged.postgres_config.url,
+                "postgres://example.com:5432/sample"
+            );
+            assert_eq!(merged.postgres_config.max_connections, 32);
+            assert_eq!(merged.postgres_config.min_connections, 6);
+            assert_eq!(merged.postgres_config.connect_timeout_ms, 7000);
+            assert_eq!(merged.postgres_config.acquire_timeout_ms, 10000);
+            assert_eq!(merged.postgres_config.idle_timeout_secs, 1200);
+            assert_eq!(merged.postgres_config.max_lifetime_secs, 3600);
+            assert_eq!(merged.postgres_config.validate_on_startup, false);
+            assert_eq!(merged.postgres_config.ssl_mode, "require");
+            assert_eq!(merged.postgres_config.statement_timeout_ms, Some(45000));
+
+            clear_postgres_env_vars();
+            clear_redis_env_vars();
+        });
+    }
+
+    #[test]
+    fn merge_with_env_accepts_false_for_postgres_validate_on_startup() {
+        with_env_lock(|| {
+            clear_redis_env_vars();
+            clear_postgres_env_vars();
+            unsafe {
+                env::set_var(POSTGRES_VALIDATE_ON_STARTUP, "0");
+            }
+
+            let merged = AppConfig::default().merge_with_env();
+
+            assert_eq!(merged.postgres_config.validate_on_startup, false);
+
+            clear_postgres_env_vars();
+            clear_redis_env_vars();
+        });
+    }
+
+    #[test]
+    fn merge_with_env_ignores_invalid_postgres_statement_timeout() {
+        with_env_lock(|| {
+            clear_redis_env_vars();
+            clear_postgres_env_vars();
+            unsafe {
+                env::set_var(POSTGRES_STATEMENT_TIMEOUT_MS, "not-a-number");
+            }
+
+            let original = AppConfig::default();
+            let merged = original.clone().merge_with_env();
+
+            assert_eq!(
+                merged.postgres_config.statement_timeout_ms,
+                original.postgres_config.statement_timeout_ms
+            );
+
+            clear_postgres_env_vars();
             clear_redis_env_vars();
         });
     }
@@ -456,6 +494,25 @@ mod tests {
             assert_eq!(merged.redis_config.url, "redis://example.com:6379/1");
             assert_eq!(merged.redis_config.pool_max_size, 32);
 
+            clear_redis_env_vars();
+        });
+    }
+
+    #[test]
+    fn merge_with_env_overrides_postgres_statement_timeout() {
+        with_env_lock(|| {
+            clear_redis_env_vars();
+            clear_postgres_env_vars();
+            unsafe {
+                env::set_var(POSTGRES_STATEMENT_TIMEOUT_MS, "45000");
+            }
+
+            let original = AppConfig::default();
+            let merged = original.merge_with_env();
+
+            assert_eq!(merged.postgres_config.statement_timeout_ms, Some(45000));
+
+            clear_postgres_env_vars();
             clear_redis_env_vars();
         });
     }

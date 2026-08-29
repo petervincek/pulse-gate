@@ -6,10 +6,10 @@ use pulse_gate::{
     api::health::health_router,
     app::state::AppState,
     core::{
-        config::{AppConfig, ConfigManager, LoggingConfig},
+        config::common::{AppConfig, ConfigManager, LoggingConfig},
         logging::LogManager,
     },
-    model::connection_redis::build_redis_pool,
+    model::{connection_postgres::build_postgres_pool, connection_redis::build_redis_pool},
 };
 use tracing_appender::non_blocking::WorkerGuard;
 
@@ -51,8 +51,11 @@ async fn main() -> Result<()> {
     // create the Redis connection pool
     let redis_pool = build_redis_pool(&app_config).await?;
 
+    // create the Postgres connection pool
+    let postgres_pool = build_postgres_pool(&app_config).await?;
+
     // create application state with shared dependencies
-    let app_state = AppState::new(redis_pool, "PulseGate");
+    let app_state = AppState::new(redis_pool, postgres_pool, "PulseGate");
 
     println!("PulseGate starting ...");
 
