@@ -2,6 +2,7 @@ use std::{process, sync::Arc};
 
 use anyhow::Result;
 use axum::Router;
+use openidconnect::reqwest::Client;
 use pulse_gate::{
     api::health::health_router,
     app::state::AppState,
@@ -10,6 +11,7 @@ use pulse_gate::{
         logging::LogManager,
     },
     model::{connection_postgres::build_postgres_pool, connection_redis::build_redis_pool},
+    service::keycloak::KeycloakService,
 };
 use tracing_appender::non_blocking::WorkerGuard;
 
@@ -54,8 +56,14 @@ async fn main() -> Result<()> {
     // create the Postgres connection pool
     let postgres_pool = build_postgres_pool(&app_config).await?;
 
+    // create the http client (pool underneath)
+    let http_client = Client::builder().build()?;
+
+    // create the keycloak service smart pointer, so it's shareable for the whole app
+    let keycloak_service = Arc::new(KeycloakService::new(http_client.clone(), &app_config));
+
     // create application state with shared dependencies
-    let app_state = AppState::new(redis_pool, postgres_pool, "PulseGate");
+    let app_state = AppState::new(redis_pool, postgres_pool, keycloak_service, "PulseGate");
 
     println!("PulseGate starting ...");
 

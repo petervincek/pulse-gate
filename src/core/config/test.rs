@@ -3,6 +3,7 @@ mod tests {
 
     use crate::core::config::{
         common::{AppConfig, ConfigManager},
+        keycloak::KEYCLOAK_REALM_URL,
         postgres::{
             POSTGRES_ACQUIRE_TIMEOUT_MS, POSTGRES_CONNECT_TIMEOUT_MS, POSTGRES_IDLE_TIMEOUT_SECS,
             POSTGRES_MAX_CONNECTIONS, POSTGRES_MAX_LIFETIME_SECS, POSTGRES_MIN_CONNECTIONS,
@@ -56,6 +57,7 @@ mod tests {
             env::remove_var(POSTGRES_VALIDATE_ON_STARTUP);
             env::remove_var(POSTGRES_SSL_MODE);
             env::remove_var(POSTGRES_STATEMENT_TIMEOUT_MS);
+            env::remove_var(KEYCLOAK_REALM_URL);
         }
     }
 
@@ -515,5 +517,64 @@ mod tests {
             clear_postgres_env_vars();
             clear_redis_env_vars();
         });
+    }
+
+    #[test]
+    fn merge_with_env_overrides_keycloak_realm_url() {
+        with_env_lock(|| {
+            clear_redis_env_vars();
+            clear_postgres_env_vars();
+            unsafe {
+                env::set_var(KEYCLOAK_REALM_URL, "http://example.com/realms/test-realm");
+            }
+
+            let merged = AppConfig::default().merge_with_env();
+
+            assert_eq!(
+                merged.keycloak_config.url,
+                "http://example.com/realms/test-realm"
+            );
+
+            clear_postgres_env_vars();
+            clear_redis_env_vars();
+        });
+    }
+
+    #[test]
+    fn default_app_config_contains_keycloak_default_url() {
+        let config = AppConfig::default();
+
+        assert_eq!(config.keycloak_config.url, "http://localhost:9999/realms/gateway-realm");
+    }
+
+    #[test]
+    fn save_config_writes_modified_keycloak_value_to_file() {
+        let dir = tempdir().expect("failed to create temp dir");
+        let manager = ConfigManager::new(Some(dir.path().to_path_buf()));
+
+        let mut config = AppConfig::default();
+        config.keycloak_config.url = "https://auth.example.com/realms/custom".to_string();
+
+        manager.save_config(&config).expect("save_config failed");
+
+        let contents = fs::read_to_string(manager.get_config_file_path())
+            .expect("read config failed");
+        let parsed: AppConfig = toml::from_str(&contents).expect("parse config failed");
+
+        assert_eq!(parsed.keycloak_config.url, "https://auth.example.com/realms/custom");
+    }
+
+    #[test]
+    fn save_config_roundtrip_preserves_keycloak_values() {
+        let dir = tempdir().expect("failed to create temp dir");
+        let manager = ConfigManager::new(Some(dir.path().to_path_buf()));
+
+        let mut expected = AppConfig::default();
+        expected.keycloak_config.url = "https://auth.example.com/realms/custom".to_string();
+
+        manager.save_config(&expected).expect("save_config failed");
+        let actual = manager.load_or_create().expect("load_or_create failed");
+
+        assert_eq!(actual, expected);
     }
 }

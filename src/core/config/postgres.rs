@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 // POSTGRESQL env variables
-pub const POSTGRES_URL: &str = "POSTGRES";
+pub const POSTGRES_URL: &str = "POSTGRES_URL";
 pub const POSTGRES_MAX_CONNECTIONS: &str = "POSTGRES_MAX_CONNECTIONS";
 pub const POSTGRES_MIN_CONNECTIONS: &str = "POSTGRES_MIN_CONNECTIONS";
 pub const POSTGRES_CONNECT_TIMEOUT_MS: &str = "POSTGRES_CONNECT_TIMEOUT_MS";

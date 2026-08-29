@@ -1,5 +1,6 @@
 use std::{env, fs, path::PathBuf};
 
+use crate::core::config::keycloak::{KEYCLOAK_REALM_URL, KeycloakConfig};
 use crate::core::config::postgres::{
     POSTGRES_ACQUIRE_TIMEOUT_MS, POSTGRES_CONNECT_TIMEOUT_MS, POSTGRES_IDLE_TIMEOUT_SECS,
     POSTGRES_MAX_CONNECTIONS, POSTGRES_MAX_LIFETIME_SECS, POSTGRES_MIN_CONNECTIONS,
@@ -23,11 +24,15 @@ pub struct AppConfig {
     pub redis_config: RedisConfig,
     #[serde(default)]
     pub postgres_config: PostgresConfig,
+    #[serde(default)]
+    pub keycloak_config: KeycloakConfig,
 }
 
 impl AppConfig {
     pub fn merge_with_env(self) -> Self {
-        self.merge_with_redis_env().merge_with_postgres_env()
+        self.merge_with_redis_env()
+            .merge_with_postgres_env()
+            .merge_with_keycloak_env()
     }
 
     fn merge_with_redis_env(mut self) -> Self {
@@ -132,6 +137,14 @@ impl AppConfig {
                 Err(_) => None,
             })
             .unwrap_or(self.postgres_config.statement_timeout_ms);
+
+        self
+    }
+
+    fn merge_with_keycloak_env(mut self) -> Self {
+        if let Ok(url) = env::var(KEYCLOAK_REALM_URL) {
+            self.keycloak_config.url = url;
+        }
 
         self
     }

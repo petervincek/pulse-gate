@@ -3,15 +3,21 @@ use deadpool_redis::redis::AsyncCommands;
 use serde_json::{Value, json};
 use tokio::join;
 
-use crate::{app::state::AppState, model::connection_postgres::validate_postgres_startup};
+use crate::{
+    app::state::AppState, model::connection_postgres::validate_postgres_startup,
+    service::keycloak::KeycloakMetadata,
+};
 
 /// `get_health` is a handler function that receives through Axum extractor dependency for global
 /// state `AppState`
 pub async fn get_health(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let (redis_result, postgres_result) =
-        join!(check_redis_health(&state), check_postgres_health(&state));
+    let (redis_result, postgres_result, keycloak_result) = join!(
+        check_redis_health(&state),
+        check_postgres_health(&state),
+        check_keycloak_health(&state)
+    );
 
     let redis_status = match &redis_result {
         Ok(_) => "ok",
@@ -21,21 +27,28 @@ pub async fn get_health(
         Ok(_) => "ok",
         Err(_) => "error",
     };
-
-    let overall_status = if redis_status == "ok" && postgres_status == "ok" {
-        "ok"
-    } else {
-        "degraded"
+    let keycloak_status = match &keycloak_result {
+        Ok(_) => "ok",
+        Err(_) => "error",
     };
+
+    let overall_status =
+        if redis_status == "ok" && postgres_status == "ok" && keycloak_status == "ok" {
+            "ok"
+        } else {
+            "degraded"
+        };
 
     let body = json!({
         "status": overall_status,
         "service": state.service_name,
         "redis": redis_status,
         "postgres": postgres_status,
+        "keycloak": keycloak_status,
         "errors": {
             "redis": redis_result.err(),
             "postgres": postgres_result.err(),
+            "keycloak": keycloak_result.err(),
         }
     });
 
@@ -63,6 +76,14 @@ async fn check_redis_health(state: &AppState) -> Result<(), String> {
 
 async fn check_postgres_health(state: &AppState) -> Result<(), String> {
     validate_postgres_startup(&state.pg_pool)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+async fn check_keycloak_health(state: &AppState) -> Result<KeycloakMetadata, String> {
+    state
+        .keycloak_service
+        .discover()
         .await
         .map_err(|err| err.to_string())
 }
