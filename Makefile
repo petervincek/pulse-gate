@@ -1,3 +1,5 @@
+CLEANUP_MINUTES ?= 15
+
 # Define the target: build (will download the dependencies and compile the project)
 build:
 	cargo build
@@ -16,7 +18,7 @@ update:
 
 # Define the target: test
 test:
-	cargo test
+	@bash -lc 'cargo test -- --nocapture; TEST_STATUS=$$?; ./scripts/container-cleanup.sh -y $(CLEANUP_MINUTES) || true; exit $$TEST_STATUS'
 
 # Define the target: check
 check:
