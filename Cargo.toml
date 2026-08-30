@@ -30,3 +30,4 @@ openidconnect = { version = "4.0.1", features = ["reqwest"] }
 
 [dev-dependencies]
 tempfile = "3"
+testcontainers = "0.28.0"
