@@ -8,20 +8,27 @@ set -euo pipefail
 DRY_RUN=false
 SKIP_CONFIRM=false
 MINUTES=""
+LABEL_KEY="pulse-gate-test"
+LABEL_VALUE="true"
+NAME_PREFIX="pulse-gate-test-"
 
 # Function to print usage instructions
 print_usage() {
     echo "Usage: $0 [options] <minutes>"
     echo ""
     echo "Options:"
-    echo "  -d, --dry-run    Show what containers would be affected without changing anything"
-    echo "  -y, --yes        Skip the interactive confirmation step and delete immediately"
-    echo "  -h, --help       Show this help message"
+    echo "  -d, --dry-run            Show what containers would be affected without changing anything"
+    echo "  -y, --yes                Skip the interactive confirmation step and delete immediately"
+    echo "  -l, --label KEY VALUE    Only target containers with the given label key/value"
+    echo "  -p, --name-prefix PREFIX Only target containers whose names contain the prefix"
+    echo "  -h, --help               Show this help message"
     echo ""
     echo "Example:"
     echo "  $0 40"
     echo "  $0 --dry-run 30"
     echo "  $0 -y 15"
+    echo "  $0 --label pulse-gate-test true 30"
+    echo "  $0 --name-prefix pulse-gate-test- 30"
 }
 
 # 1. Parse optional flags using a while loop
@@ -34,6 +41,25 @@ while [[ $# -gt 0 ]]; do
         -y|--yes)
             SKIP_CONFIRM=true
             shift
+            ;;
+        -l|--label)
+            if [ $# -lt 3 ]; then
+                echo "Error: --label requires two arguments: KEY VALUE" >&2
+                print_usage
+                exit 1
+            fi
+            LABEL_KEY="$2"
+            LABEL_VALUE="$3"
+            shift 3
+            ;;
+        -p|--name-prefix)
+            if [ $# -lt 2 ]; then
+                echo "Error: --name-prefix requires an argument" >&2
+                print_usage
+                exit 1
+            fi
+            NAME_PREFIX="$2"
+            shift 2
             ;;
         -h|--help)
             print_usage
@@ -88,7 +114,7 @@ else
 fi
 
 # 5. Extract ID, Image, Names, and Command separated by tabs
-RAW_DATA=$(docker ps -a --format '{{.ID}}\t{{.Image}}\t{{.Names}}\t{{.Command}}')
+RAW_DATA=$(docker ps -a --filter "label=${LABEL_KEY}=${LABEL_VALUE}" --filter "name=${NAME_PREFIX}" --format '{{.ID}}\t{{.Image}}\t{{.Names}}\t{{.Command}}')
 
 # 6. Filter containers mathematically using uniform UTC Epoch Seconds
 AFFECTED_CONTAINERS=""
@@ -116,7 +142,8 @@ while IFS=$'\t' read -r c_id c_image c_name c_cmd; do
 
     # Compare integers mathematically
     if [ "$CONTAINER_EPOCH" -ge "$THRESHOLD_EPOCH" ]; then
-        AFFECTED_CONTAINERS="${AFFECTED_CONTAINERS}${c_id}\t${c_image}\t${c_name}\n"
+        # AFFECTED_CONTAINERS="${AFFECTED_CONTAINERS}${c_id}\t${c_image}\t${c_name}\n"
+        AFFECTED_CONTAINERS="${AFFECTED_CONTAINERS}${c_id}\t${c_image}\t${c_name}\t${c_cmd}\n"
     fi
 done <<< "$RAW_DATA"
 
@@ -133,10 +160,10 @@ fi
 
 echo ""
 echo "Found the following containers matching the criteria:"
-echo "------------------------------------------------------------------------------------------------"
-printf "%-14s %-35s %-22s %-35s\n" "CONTAINER ID" "IMAGE" "NAME" "COMMAND"
-echo "$AFFECTED_CONTAINERS" | awk -F'\t' '{printf "%-14s %-35s %-22s %-35s\n", $1, $2, $3, $4}'
-echo "------------------------------------------------------------------------------------------------"
+echo "----------------------------------------------------------------------------------------------------"
+printf "%-14s %-30s %-30s %-35s\n" "CONTAINER ID" "IMAGE" "NAME" "COMMAND"
+echo "$AFFECTED_CONTAINERS" | awk -F'\t' '{printf "%-14s %-30s %-30s %-35s\n", $1, $2, $3, $4}'
+echo "----------------------------------------------------------------------------------------------------"
 
 # Extract just the raw container IDs from our pool
 TARGET_IDS=$(echo "$AFFECTED_CONTAINERS" | awk -F'\t' '{print $1}')

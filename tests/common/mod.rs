@@ -23,6 +23,9 @@ const POSTGRES_DB: &str = "pulse_gate_dev";
 const KEYCLOAK_IMAGE: &str = "keycloak/keycloak:26.7";
 const KEYCLOAK_PORT: u16 = 8080_u16;
 const KEYCLOAK_REALM: &str = "gateway-realm";
+const TEST_INFRA_LABEL_KEY: &str = "pulse-gate-test";
+const TEST_INFRA_LABEL_VALUE: &str = "true";
+const TEST_INFRA_NAME_PREFIX: &str = "pulse-gate-test-";
 
 pub struct EnvRestore(Vec<(String, Option<String>)>);
 
@@ -76,6 +79,8 @@ impl TestInfra {
                 .with_wait_for(WaitFor::message_on_stdout(
                     "Ready to accept connections tcp",
                 ))
+                .with_label(TEST_INFRA_LABEL_KEY, TEST_INFRA_LABEL_VALUE)
+                .with_container_name(format!("{}redis", TEST_INFRA_NAME_PREFIX))
                 .with_cmd(vec!["redis-server", "--appendonly", "yes"]);
 
                 let postgres_container = GenericImage::new(
@@ -88,7 +93,9 @@ impl TestInfra {
                 ))
                 .with_env_var("POSTGRES_USER", POSTGRES_USER)
                 .with_env_var("POSTGRES_PASSWORD", POSTGRES_PASSWORD)
-                .with_env_var("POSTGRES_DB", POSTGRES_DB);
+                .with_env_var("POSTGRES_DB", POSTGRES_DB)
+                .with_label(TEST_INFRA_LABEL_KEY, TEST_INFRA_LABEL_VALUE)
+                .with_container_name(format!("{}postgres", TEST_INFRA_NAME_PREFIX));
 
                 let keyloack_container = GenericImage::new(
                     KEYCLOAK_IMAGE.split(":").collect::<Vec<&str>>()[0],
@@ -99,6 +106,8 @@ impl TestInfra {
                 .with_env_var("KEYCLOAK_ADMIN", "admin")
                 .with_env_var("KEYCLOAK_ADMIN_PASSWORD", "admin")
                 .with_mount(create_keycloak_realm_mount_point())
+                .with_label(TEST_INFRA_LABEL_KEY, TEST_INFRA_LABEL_VALUE)
+                .with_container_name(format!("{}keycloak", TEST_INFRA_NAME_PREFIX))
                 .with_cmd(vec!["start-dev", "--import-realm"]);
 
                 // start the container in parallel to save time
