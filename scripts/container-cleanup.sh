@@ -4,10 +4,17 @@
 # or if an uninitialized variable is used.
 set -euo pipefail
 
+# Verify Docker is available before doing anything else
+if ! command -v docker >/dev/null 2>&1; then
+    echo "Error: docker is required but not installed or not on PATH." >&2
+    exit 1
+fi
+
 # Initialize default variable state
 DRY_RUN=false
 SKIP_CONFIRM=false
 MINUTES=""
+NO_TIME_FILTER=false
 LABEL_KEY="pulse-gate-test"
 LABEL_VALUE="true"
 NAME_PREFIX="pulse-gate-test-"
@@ -21,6 +28,7 @@ print_usage() {
     echo "  -y, --yes                Skip the interactive confirmation step and delete immediately"
     echo "  -l, --label KEY VALUE    Only target containers with the given label key/value"
     echo "  -p, --name-prefix PREFIX Only target containers whose names contain the prefix"
+    echo "  --no-time-filter         Ignore the time filter and target all matching containers"
     echo "  -h, --help               Show this help message"
     echo ""
     echo "Example:"
@@ -29,6 +37,7 @@ print_usage() {
     echo "  $0 -y 15"
     echo "  $0 --label pulse-gate-test true 30"
     echo "  $0 --name-prefix pulse-gate-test- 30"
+    echo "  $0 --no-time-filter"
 }
 
 # 1. Parse optional flags using a while loop
@@ -61,6 +70,10 @@ while [[ $# -gt 0 ]]; do
             NAME_PREFIX="$2"
             shift 2
             ;;
+        --no-time-filter)
+            NO_TIME_FILTER=true
+            shift
+            ;;
         -h|--help)
             print_usage
             exit 0
@@ -84,17 +97,19 @@ while [[ $# -gt 0 ]]; do
 done
 
 # 2. Check if the mandatory positional argument was captured
-if [ -z "$MINUTES" ]; then
+if [ "$NO_TIME_FILTER" = false ] && [ -z "$MINUTES" ]; then
     echo "Error: Missing mandatory time constraint argument (minutes)." >&2
     print_usage
     exit 1
 fi
 
-# 3. Validate that the input is a positive integer
-if [[ ! "$MINUTES" =~ ^[0-9]+$ ]] || [ "$MINUTES" -eq 0 ]; then
-    echo "Error: Argument must be a positive integer representing minutes." >&2
-    print_usage
-    exit 1
+if [ "$NO_TIME_FILTER" = false ]; then
+    # 3. Validate that the input is a positive integer
+    if [[ ! "$MINUTES" =~ ^[0-9]+$ ]] || [ "$MINUTES" -eq 0 ]; then
+        echo "Error: Argument must be a positive integer representing minutes." >&2
+        print_usage
+        exit 1
+    fi
 fi
 
 if [ "$DRY_RUN" = true ]; then
@@ -102,15 +117,19 @@ if [ "$DRY_RUN" = true ]; then
     echo "The script will only log targets and skip modifications."
 fi
 
-echo "Scanning for Docker containers created less than $MINUTES minutes ago..."
-
-# 4. Calculate the boundary threshold timestamp in Epoch Seconds
-if date -d "$MINUTES minutes ago" +%s &>/dev/null; then
-    # Linux / GNU date
-    THRESHOLD_EPOCH=$(date -d "$MINUTES minutes ago" +%s)
+if [ "$NO_TIME_FILTER" = true ]; then
+    echo "Scanning for Docker containers matching label/prefix without time filter..."
 else
-    # macOS / BSD date
-    THRESHOLD_EPOCH=$(date -v-"${MINUTES}"M +%s)
+    echo "Scanning for Docker containers created less than $MINUTES minutes ago..."
+
+    # 4. Calculate the boundary threshold timestamp in Epoch Seconds
+    if date -d "$MINUTES minutes ago" +%s &>/dev/null; then
+        # Linux / GNU date
+        THRESHOLD_EPOCH=$(date -d "$MINUTES minutes ago" +%s)
+    else
+        # macOS / BSD date
+        THRESHOLD_EPOCH=$(date -v-"${MINUTES}"M +%s)
+    fi
 fi
 
 # 5. Extract ID, Image, Names, and Command separated by tabs
@@ -140,9 +159,8 @@ while IFS=$'\t' read -r c_id c_image c_name c_cmd; do
         CONTAINER_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "$CLEAN_TS" +%s)
     fi
 
-    # Compare integers mathematically
-    if [ "$CONTAINER_EPOCH" -ge "$THRESHOLD_EPOCH" ]; then
-        # AFFECTED_CONTAINERS="${AFFECTED_CONTAINERS}${c_id}\t${c_image}\t${c_name}\n"
+    # Compare integers mathematically or include all matching containers when --no-time-filter is enabled
+    if [ "$NO_TIME_FILTER" = true ] || [ "$CONTAINER_EPOCH" -ge "$THRESHOLD_EPOCH" ]; then
         AFFECTED_CONTAINERS="${AFFECTED_CONTAINERS}${c_id}\t${c_image}\t${c_name}\t${c_cmd}\n"
     fi
 done <<< "$RAW_DATA"
