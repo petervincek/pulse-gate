@@ -1,4 +1,9 @@
-use std::{collections::HashMap, env, sync::Arc};
+use std::{
+    collections::HashMap,
+    env,
+    sync::{Arc, atomic::{AtomicU64, Ordering}},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::Result;
 use axum::Router;
@@ -26,6 +31,17 @@ const KEYCLOAK_REALM: &str = "gateway-realm";
 const TEST_INFRA_LABEL_KEY: &str = "pulse-gate-test";
 const TEST_INFRA_LABEL_VALUE: &str = "true";
 const TEST_INFRA_NAME_PREFIX: &str = "pulse-gate-test-";
+
+static TEST_INFRA_INSTANCE_ID: AtomicU64 = AtomicU64::new(0);
+
+fn unique_test_infra_name(prefix: &str) -> String {
+    let unique_suffix = TEST_INFRA_INSTANCE_ID.fetch_add(1, Ordering::Relaxed);
+    let timestamp_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    format!("{prefix}{timestamp_nanos}-{unique_suffix}")
+}
 
 pub struct EnvRestore(Vec<(String, Option<String>)>);
 
@@ -80,7 +96,7 @@ impl TestInfra {
                     "Ready to accept connections tcp",
                 ))
                 .with_label(TEST_INFRA_LABEL_KEY, TEST_INFRA_LABEL_VALUE)
-                .with_container_name(format!("{}redis", TEST_INFRA_NAME_PREFIX))
+                .with_container_name(unique_test_infra_name(&format!("{}redis-", TEST_INFRA_NAME_PREFIX)))
                 .with_cmd(vec!["redis-server", "--appendonly", "yes"]);
 
                 let postgres_container = GenericImage::new(
@@ -95,7 +111,7 @@ impl TestInfra {
                 .with_env_var("POSTGRES_PASSWORD", POSTGRES_PASSWORD)
                 .with_env_var("POSTGRES_DB", POSTGRES_DB)
                 .with_label(TEST_INFRA_LABEL_KEY, TEST_INFRA_LABEL_VALUE)
-                .with_container_name(format!("{}postgres", TEST_INFRA_NAME_PREFIX));
+                .with_container_name(unique_test_infra_name(&format!("{}postgres-", TEST_INFRA_NAME_PREFIX)));
 
                 let keyloack_container = GenericImage::new(
                     KEYCLOAK_IMAGE.split(":").collect::<Vec<&str>>()[0],
@@ -107,7 +123,7 @@ impl TestInfra {
                 .with_env_var("KEYCLOAK_ADMIN_PASSWORD", "admin")
                 .with_mount(create_keycloak_realm_mount_point())
                 .with_label(TEST_INFRA_LABEL_KEY, TEST_INFRA_LABEL_VALUE)
-                .with_container_name(format!("{}keycloak", TEST_INFRA_NAME_PREFIX))
+                .with_container_name(unique_test_infra_name(&format!("{}keycloak-", TEST_INFRA_NAME_PREFIX)))
                 .with_cmd(vec!["start-dev", "--import-realm"]);
 
                 // start the container in parallel to save time

@@ -1,4 +1,3 @@
-mod common;
 use anyhow::Result;
 use serde_json::{Value, json};
 use tempfile::tempdir;

@@ -5,6 +5,7 @@ use sqlx::{
 };
 use std::time::Duration;
 use tokio::time::sleep;
+use tracing::debug;
 
 use crate::core::config::common::AppConfig;
 
@@ -49,6 +50,8 @@ pub async fn build_postgres_pool(app_config: &AppConfig) -> Result<PgPool> {
     if app_config.postgres_config.validate_on_startup {
         validate_postgres_startup(&pg_pool).await?;
     }
+
+    run_migrations(&pg_pool).await?;
 
     Ok(pg_pool)
 }
@@ -98,4 +101,10 @@ pub async fn validate_postgres_startup(pg_pool: &PgPool) -> Result<()> {
             Err(err) => return Err(err).context("postgres startup validation failed"),
         }
     }
+}
+
+pub async fn run_migrations(pg_pool: &PgPool) -> Result<()> {
+    sqlx::migrate!("./migrations").run(pg_pool).await?;
+    debug!("Run migrations scripts successful.");
+    Ok(())
 }

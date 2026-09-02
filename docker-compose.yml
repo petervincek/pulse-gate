@@ -68,6 +68,32 @@ services:
       - postgres
       - redis
 
+  # Reverse proxy test targets - stand-ins for real upstream services during local dev
+  target-service-a:
+    image: traefik/whoami:latest
+    container_name: pulse-gate-target-a
+    ports:
+      - '9101:80'
+    environment:
+      WHOAMI_NAME: target-service-a
+    restart: unless-stopped
+
+  target-service-b:
+    image: traefik/whoami:latest
+    container_name: pulse-gate-target-b
+    ports:
+      - '9102:80'
+    environment:
+      WHOAMI_NAME: target-service-b
+    restart: unless-stopped
+
+  target-httpbin:
+    image: mccutchen/go-httpbin:latest
+    container_name: pulse-gate-target-httpbin
+    ports:
+      - '9103:8080'
+    restart: unless-stopped
+
 volumes:
   redis_data:
   postgres_data:

@@ -2,13 +2,19 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::Router;
+use dashmap::DashMap;
 use openidconnect::reqwest::Client;
+use reqwest::Client as ReqwestClient;
 
 use crate::{
-    api::health::health_router,
+    api::{health::health_router, reverse_proxy::dynamic_proxy_router},
     app::state::AppState,
     core::config::common::AppConfig,
-    model::{connection_postgres::build_postgres_pool, connection_redis::build_redis_pool},
+    model::{
+        connection_postgres::build_postgres_pool,
+        connection_redis::build_redis_pool,
+        route_target::{PathPrefix, RouteTarget, RouteTargetRepo},
+    },
     service::keycloak::KeycloakService,
 };
 
@@ -27,15 +33,40 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
     // create the keycloak service smart pointer, so it's shareable for the whole app
     let keycloak_service = Arc::new(KeycloakService::new(http_client.clone(), app_config));
 
+    // create route target repository and load the registered routes from the DB
+    let route_target_repo = RouteTargetRepo::new(postgres_pool.clone());
+    let service_routes: Arc<DashMap<PathPrefix, RouteTarget>> = Arc::new(
+        route_target_repo
+            .list_route_targets()
+            .await?
+            .into_iter()
+            .map(|route_target| (route_target.path_prefix.clone(), route_target))
+            .collect(),
+    );
+
+    // create http client
+    let http_client = ReqwestClient::default();
+
     // create application state with shared dependencies
-    let app_state = AppState::new(redis_pool, postgres_pool, keycloak_service, "PulseGate");
+    let app_state = AppState::new(
+        redis_pool,
+        postgres_pool,
+        keycloak_service,
+        service_routes,
+        http_client,
+        "PulseGate",
+    );
 
     // create health router
     let health_router = health_router();
 
+    // create the dynamic proxy router (responsible for dispatching the incoming requests and streaming back the responses)
+    let dynamic_proxy_router = dynamic_proxy_router();
+
     // create the main/root level application router
     let app_router = Router::new()
         .nest("/health", health_router)
+        .merge(dynamic_proxy_router)
         .with_state(app_state);
 
     Ok(app_router)
