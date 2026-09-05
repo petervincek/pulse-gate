@@ -150,7 +150,7 @@ impl AppConfig {
         }
 
         if let Ok(expected_audience) = env::var(KEYCLOAK_EXPECTED_AUDIENCE)
-            && expected_audience.len() > 0
+            && !expected_audience.is_empty()
         {
             self.keycloak_config.expected_audience = Some(expected_audience);
         }

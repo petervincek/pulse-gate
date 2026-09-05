@@ -95,15 +95,35 @@ fn principal_has_role(principal: &VerifiedPrincipal, required_role: &str) -> boo
             .any(|role| role.eq_ignore_ascii_case(required_role))
 }
 
+pub trait RoleGuard:
+    Fn(
+        State<AppState>,
+        Extension<VerifiedPrincipal>,
+        Request,
+        Next,
+    ) -> Pin<Box<dyn Future<Output = Result<Response, StatusCode>> + Send>>
+    + Clone
+    + Send
+    + Sync
+{
+}
+
+impl<T> RoleGuard for T where
+    T: Fn(
+            State<AppState>,
+            Extension<VerifiedPrincipal>,
+            Request,
+            Next,
+        ) -> Pin<Box<dyn Future<Output = Result<Response, StatusCode>> + Send>>
+        + Clone
+        + Send
+        + Sync
+{
+}
+
 pub fn require_role(
     required_role: impl Into<String> + Clone + Send + Sync + 'static,
-) -> impl Fn(
-    State<AppState>,
-    Extension<VerifiedPrincipal>,
-    Request,
-    Next,
-) -> Pin<Box<dyn Future<Output = Result<Response, StatusCode>> + Send>>
-+ Clone {
+) -> impl RoleGuard {
     let required_role = required_role.into();
 
     move |State(_state): State<AppState>,
