@@ -80,6 +80,48 @@ pub async fn require_valid_token(
     Ok(next.run(request).await)
 }
 
+fn principal_has_role(principal: &VerifiedPrincipal, required_role: &str) -> bool {
+    principal
+        .claims
+        .realm_access
+        .roles
+        .iter()
+        .any(|role| role.eq_ignore_ascii_case(required_role))
+        || principal
+            .claims
+            .resource_access
+            .values()
+            .flat_map(|access| access.roles.iter())
+            .any(|role| role.eq_ignore_ascii_case(required_role))
+}
+
+pub fn require_role(
+    required_role: impl Into<String> + Clone + Send + Sync + 'static,
+) -> impl Fn(
+    State<AppState>,
+    Extension<VerifiedPrincipal>,
+    Request,
+    Next,
+) -> Pin<Box<dyn Future<Output = Result<Response, StatusCode>> + Send>>
++ Clone {
+    let required_role = required_role.into();
+
+    move |State(_state): State<AppState>,
+          Extension(principal): Extension<VerifiedPrincipal>,
+          request: Request,
+          next: Next| {
+        let required_role = required_role.clone();
+
+        Box::pin(async move {
+            if !principal_has_role(&principal, &required_role) {
+                return Err(StatusCode::FORBIDDEN);
+            }
+
+            Ok(next.run(request).await)
+        }) as Pin<Box<dyn Future<Output = Result<Response, StatusCode>> + Send>>
+    }
+}
+
 /// Require a verified principal to have the Keycloak `ADMIN` role.
 pub async fn require_admin_role(
     State(_state): State<AppState>,
@@ -87,20 +129,7 @@ pub async fn require_admin_role(
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let has_admin_role = principal
-        .claims
-        .realm_access
-        .roles
-        .iter()
-        .any(|role| role.eq_ignore_ascii_case("ADMIN"))
-        || principal
-            .claims
-            .resource_access
-            .values()
-            .flat_map(|access| access.roles.iter())
-            .any(|role| role.eq_ignore_ascii_case("ADMIN"));
-
-    if !has_admin_role {
+    if !principal_has_role(&principal, "ADMIN") {
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -126,7 +155,9 @@ mod tests {
     use tower::util::ServiceExt;
 
     use crate::{
-        api::middleware::authentication::{AuthService, require_admin_role, require_valid_token},
+        api::middleware::authentication::{
+            AuthService, require_admin_role, require_role, require_valid_token,
+        },
         app::state::AppState,
         service::keycloak::{
             Audience, KeycloakClaims, KeycloakMetadata, RealmAccess, ResourceAccess,
@@ -293,6 +324,37 @@ mod tests {
                     },
                 ),
             )
+            .route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                require_valid_token,
+            ))
+            .with_state(state);
+
+        let request = Request::builder()
+            .uri("/secure")
+            .header("authorization", "Bearer valid-token")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn require_role_factory_allows_specific_role() {
+        let principal = user_principal("viewer-user");
+        let state = test_app_state(Arc::new(MockAuthService {
+            principal: Some(principal),
+            should_fail: false,
+            failure_message: String::new(),
+        }));
+        let app = Router::new()
+            .route("/secure", get(|| async { StatusCode::OK }))
+            .route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                require_role("viewer"),
+            ))
             .route_layer(middleware::from_fn_with_state(
                 state.clone(),
                 require_valid_token,

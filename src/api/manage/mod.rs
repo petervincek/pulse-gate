@@ -1,7 +1,7 @@
 use axum::{Router, middleware, routing::get};
 
 use crate::{
-    api::middleware::authentication::{require_admin_role, require_valid_token},
+    api::middleware::authentication::{require_role, require_valid_token},
     app::state::AppState,
 };
 
@@ -26,7 +26,7 @@ pub fn manage_router(state: AppState) -> Router<AppState> {
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
-            require_admin_role,
+            require_role("ADMIN"),
         ))
         .route_layer(middleware::from_fn_with_state(state, require_valid_token))
 }
