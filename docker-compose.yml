@@ -30,7 +30,9 @@ services:
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
-    command: ["start-dev"]
+    volumes:
+      - ./tests/fixtures/gateway-realm-export.json:/opt/keycloak/data/import/realm.json:ro
+    command: ["start-dev", "--import-realm"]
     restart: unless-stopped
 
   redisinsight:

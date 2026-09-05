@@ -3,7 +3,7 @@ mod tests {
 
     use crate::core::config::{
         common::{AppConfig, ConfigManager},
-        keycloak::KEYCLOAK_REALM_URL,
+        keycloak::{KEYCLOAK_JWKS_REFRESH_LOOP_INTERVAL_SEC, KEYCLOAK_REALM_URL},
         postgres::{
             POSTGRES_ACQUIRE_TIMEOUT_MS, POSTGRES_CONNECT_TIMEOUT_MS, POSTGRES_IDLE_TIMEOUT_SECS,
             POSTGRES_MAX_CONNECTIONS, POSTGRES_MAX_LIFETIME_SECS, POSTGRES_MIN_CONNECTIONS,
@@ -58,6 +58,7 @@ mod tests {
             env::remove_var(POSTGRES_SSL_MODE);
             env::remove_var(POSTGRES_STATEMENT_TIMEOUT_MS);
             env::remove_var(KEYCLOAK_REALM_URL);
+            env::remove_var(KEYCLOAK_JWKS_REFRESH_LOOP_INTERVAL_SEC);
         }
     }
 
@@ -541,10 +542,35 @@ mod tests {
     }
 
     #[test]
+    fn merge_with_env_overrides_keycloak_jwks_refresh_loop_interval() {
+        with_env_lock(|| {
+            clear_redis_env_vars();
+            clear_postgres_env_vars();
+            unsafe {
+                env::set_var(KEYCLOAK_JWKS_REFRESH_LOOP_INTERVAL_SEC, "420");
+            }
+
+            let merged = AppConfig::default().merge_with_env();
+
+            assert_eq!(merged.keycloak_config.jwks_refresh_loop_interval_sec, 420);
+
+            clear_postgres_env_vars();
+            clear_redis_env_vars();
+        });
+    }
+
+    #[test]
     fn default_app_config_contains_keycloak_default_url() {
         let config = AppConfig::default();
 
-        assert_eq!(config.keycloak_config.url, "http://localhost:9999/realms/gateway-realm");
+        assert_eq!(
+            config.keycloak_config.url,
+            "http://localhost:9999/realms/gateway-realm"
+        );
+        assert_eq!(
+            config.keycloak_config.jwks_refresh_loop_interval_sec,
+            5 * 60
+        );
     }
 
     #[test]
@@ -554,14 +580,19 @@ mod tests {
 
         let mut config = AppConfig::default();
         config.keycloak_config.url = "https://auth.example.com/realms/custom".to_string();
+        config.keycloak_config.jwks_refresh_loop_interval_sec = 180;
 
         manager.save_config(&config).expect("save_config failed");
 
-        let contents = fs::read_to_string(manager.get_config_file_path())
-            .expect("read config failed");
+        let contents =
+            fs::read_to_string(manager.get_config_file_path()).expect("read config failed");
         let parsed: AppConfig = toml::from_str(&contents).expect("parse config failed");
 
-        assert_eq!(parsed.keycloak_config.url, "https://auth.example.com/realms/custom");
+        assert_eq!(
+            parsed.keycloak_config.url,
+            "https://auth.example.com/realms/custom"
+        );
+        assert_eq!(parsed.keycloak_config.jwks_refresh_loop_interval_sec, 180);
     }
 
     #[test]
@@ -571,6 +602,7 @@ mod tests {
 
         let mut expected = AppConfig::default();
         expected.keycloak_config.url = "https://auth.example.com/realms/custom".to_string();
+        expected.keycloak_config.jwks_refresh_loop_interval_sec = 300;
 
         manager.save_config(&expected).expect("save_config failed");
         let actual = manager.load_or_create().expect("load_or_create failed");

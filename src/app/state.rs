@@ -5,14 +5,16 @@ use deadpool_redis::Pool as RedisPool;
 use reqwest::Client;
 use sqlx::PgPool;
 
-use crate::model::route_target::{PathPrefix, RouteTarget};
-use crate::service::keycloak::KeycloakService;
+use crate::{
+    api::middleware::authentication::AuthService,
+    model::route_target::{PathPrefix, RouteTarget},
+};
 
 #[derive(Clone)]
 pub struct AppState {
     pub redis_pool: RedisPool, // internally this uses smart pointers so it's easily clonable
     pub pg_pool: PgPool,       // internally this uses smart pointers so it's easily clonable
-    pub keycloak_service: Arc<KeycloakService>, // smart pointer for keycloak service
+    pub keycloak_service: Arc<dyn AuthService>, // smart pointer for auth/keycloak service
     pub service_routes: Arc<DashMap<PathPrefix, RouteTarget>>, // concurrent map for PathPrefix -> RouteTarget
     pub http_client: Client,                                   // smart pointer for http client
     pub service_name: String,
@@ -22,7 +24,7 @@ impl AppState {
     pub fn new(
         redis_pool: RedisPool,
         pg_pool: PgPool,
-        keycloak_service: Arc<KeycloakService>,
+        keycloak_service: Arc<dyn AuthService>,
         service_routes: Arc<DashMap<PathPrefix, RouteTarget>>,
         http_client: Client,
         service_name: impl Into<String>,

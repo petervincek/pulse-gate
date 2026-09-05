@@ -1,6 +1,8 @@
 use std::{env, fs, path::PathBuf};
 
-use crate::core::config::keycloak::{KEYCLOAK_REALM_URL, KeycloakConfig};
+use crate::core::config::keycloak::{
+    KEYCLOAK_JWKS_REFRESH_LOOP_INTERVAL_SEC, KEYCLOAK_REALM_URL, KeycloakConfig,
+};
 use crate::core::config::postgres::{
     POSTGRES_ACQUIRE_TIMEOUT_MS, POSTGRES_CONNECT_TIMEOUT_MS, POSTGRES_IDLE_TIMEOUT_SECS,
     POSTGRES_MAX_CONNECTIONS, POSTGRES_MAX_LIFETIME_SECS, POSTGRES_MIN_CONNECTIONS,
@@ -145,6 +147,12 @@ impl AppConfig {
         if let Ok(url) = env::var(KEYCLOAK_REALM_URL) {
             self.keycloak_config.url = url;
         }
+
+        self.keycloak_config.jwks_refresh_loop_interval_sec =
+            env::var(KEYCLOAK_JWKS_REFRESH_LOOP_INTERVAL_SEC)
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(self.keycloak_config.jwks_refresh_loop_interval_sec);
 
         self
     }

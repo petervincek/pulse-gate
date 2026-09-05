@@ -1,15 +1,16 @@
-use axum::{body::Body, extract::State, http, response::Response};
+use axum::{Extension, body::Body, extract::State, http, response::Response};
 use hyper::{HeaderMap, Method, StatusCode, Uri};
 use std::time::Instant;
 use tracing::{debug, warn};
 
-use crate::app::state::AppState;
+use crate::{app::state::AppState, service::keycloak::VerifiedPrincipal};
 
 /// `dynamic_proxy_handler` is the main handler function that will try to get the route target config
 /// and will try to prepare the request to forward/stream it to the target destination and will try to stream
 /// back the response back to the original client that initiated the request in the first place
 pub async fn dynamic_proxy_handler(
     State(state): State<AppState>,
+    Extension(principal): Extension<VerifiedPrincipal>,
     method: Method,
     headers: HeaderMap,
     uri: Uri,
@@ -40,7 +41,7 @@ pub async fn dynamic_proxy_handler(
                 path = %raw_path,
                 "No reverse proxy route matched incoming path"
             );
-            return Err(StatusCode::NOT_FOUND);
+            return Err(StatusCode::NOT_FOUND); // TODO: is it ok to reveal this state ??? 
         }
     };
 
@@ -52,7 +53,30 @@ pub async fn dynamic_proxy_handler(
         "Resolved reverse proxy route"
     );
 
-    // 2. Path Rewriting
+    // 2. Authorization of the request
+    if let Some(required_role) = target_config.required_role.as_deref() {
+        let roles: Vec<String> = principal
+            .claims
+            .realm_access
+            .roles
+            .iter()
+            .cloned()
+            .chain(
+                principal
+                    .claims
+                    .resource_access
+                    .values()
+                    .flat_map(|ra| ra.roles.iter().cloned()),
+            )
+            .collect();
+
+        // if the caller/service does not have any of the required roles return forbidden
+        if !roles.iter().any(|role| role == required_role) {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
+    // 3. Path Rewriting
     // Example: Incoming "/api/v1/payments/invoices/123" with prefix "/api/v1/payments"
     // Strips prefix -> "/invoices/123"
     let sub_path = raw_path.strip_prefix(&prefix).unwrap_or("");
@@ -87,7 +111,7 @@ pub async fn dynamic_proxy_handler(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    // 3. Construct Forwarding Request
+    // 4. Construct Forwarding Request
     let mut req_builder = state.http_client.request(method, target_uri);
 
     // Copy incoming headers (excluding host-specific headers)
@@ -113,7 +137,7 @@ pub async fn dynamic_proxy_handler(
     let reqwest_body = reqwest::Body::wrap_stream(body.into_data_stream());
     let upstream_req = req_builder.body(reqwest_body);
 
-    // 4. Send Request to Upstream Service
+    // 5. Send Request to Upstream Service
     let upstream_start = Instant::now();
     let upstream_resp = upstream_req.send().await.map_err(|err| {
         warn!(
@@ -125,7 +149,7 @@ pub async fn dynamic_proxy_handler(
         StatusCode::BAD_GATEWAY
     })?;
 
-    // 5. Convert Reqwest Response back to Axum Response
+    // 6. Convert Reqwest Response back to Axum Response
     let status = upstream_resp.status();
     let upstream_latency_ms = upstream_start.elapsed().as_millis();
 

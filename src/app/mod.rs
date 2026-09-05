@@ -33,6 +33,15 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
     // create the keycloak service smart pointer, so it's shareable for the whole app
     let keycloak_service = Arc::new(KeycloakService::new(http_client.clone(), app_config));
 
+    // warm the cache once at startup so the first request is not blocked on discovery
+    if let Ok(_) = keycloak_service.get_jwks().await {
+        // no-op: cache initialized successfully
+    }
+
+    // refresh the JWKS in the background so rotated Keycloak keys are picked up without downtime
+    let refresh_keycloak_service = keycloak_service.clone();
+    refresh_keycloak_service.start_jwks_refresh_loop();
+
     // create route target repository and load the registered routes from the DB
     let route_target_repo = RouteTargetRepo::new(postgres_pool.clone());
     let service_routes: Arc<DashMap<PathPrefix, RouteTarget>> = Arc::new(
@@ -61,7 +70,7 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
     let health_router = health_router();
 
     // create the dynamic proxy router (responsible for dispatching the incoming requests and streaming back the responses)
-    let dynamic_proxy_router = dynamic_proxy_router();
+    let dynamic_proxy_router = dynamic_proxy_router(app_state.clone());
 
     // create the main/root level application router
     let app_router = Router::new()
