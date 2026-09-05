@@ -1,9 +1,9 @@
-use axum::{
-    Router,
-    routing::get,
-};
+use axum::{Router, middleware, routing::get};
 
-use crate::app::state::AppState;
+use crate::{
+    api::middleware::authentication::{require_admin_role, require_valid_token},
+    app::state::AppState,
+};
 
 pub mod route_target_handlers;
 
@@ -12,7 +12,7 @@ use route_target_handlers::{
     update_route_target,
 };
 
-pub fn manage_router() -> Router<AppState> {
+pub fn manage_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route(
             "/route-targets",
@@ -24,4 +24,9 @@ pub fn manage_router() -> Router<AppState> {
                 .put(update_route_target)
                 .delete(delete_route_target),
         )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_admin_role,
+        ))
+        .route_layer(middleware::from_fn_with_state(state, require_valid_token))
 }

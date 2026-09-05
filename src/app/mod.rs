@@ -69,7 +69,7 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
 
     // create health router
     let health_router = health_router();
-    let manage_router = manage_router();
+    let manage_router = manage_router(app_state.clone());
 
     // create the dynamic proxy router (responsible for dispatching the incoming requests and streaming back the responses)
     let dynamic_proxy_router = dynamic_proxy_router(app_state.clone());
