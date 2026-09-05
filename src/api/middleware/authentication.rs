@@ -129,7 +129,8 @@ mod tests {
         api::middleware::authentication::{AuthService, require_admin_role, require_valid_token},
         app::state::AppState,
         service::keycloak::{
-            KeycloakClaims, KeycloakMetadata, RealmAccess, ResourceAccess, VerifiedPrincipal,
+            Audience, KeycloakClaims, KeycloakMetadata, RealmAccess, ResourceAccess,
+            VerifiedPrincipal,
         },
     };
 
@@ -178,7 +179,7 @@ mod tests {
             claims: KeycloakClaims {
                 sub: subject.to_string(),
                 iss: "http://localhost:8080/realms/test".to_string(),
-                aud: Some(vec!["pulse-gate".to_string()]),
+                aud: Some(Audience::Multiple(vec!["pulse-gate".to_string()])),
                 exp: 9_999_999_999usize,
                 nbf: None,
                 iat: None,

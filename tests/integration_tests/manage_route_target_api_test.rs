@@ -45,6 +45,85 @@ async fn admin_auth_header(test_infra: &TestInfra) -> Result<String> {
     Ok(format!("Bearer {token}"))
 }
 
+async fn non_admin_auth_header(test_infra: &TestInfra) -> Result<String> {
+    let token = test_infra
+        .get_client_credentials_token("axum-service", "axum-test-secret-12345")
+        .await?;
+    Ok(format!("Bearer {token}"))
+}
+
+#[tokio::test]
+async fn manage_routes_require_authorization_header() -> Result<()> {
+    let test_infra = TestInfra::get_infra().await;
+    let _lock = test_infra.lock.lock().await;
+    let _env_restore = reset_route_targets(&test_infra).await?;
+
+    let config_dir_tmp = tempdir()?;
+    let test_server = test_infra
+        .spawn_app(default_app_router(&config_dir_tmp).await?)
+        .await;
+    let app_url = test_server.app_url();
+
+    let response = test_infra
+        .http_client
+        .get(format!("{app_url}/manage/route-targets"))
+        .send()
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn manage_routes_reject_invalid_bearer_token() -> Result<()> {
+    let test_infra = TestInfra::get_infra().await;
+    let _lock = test_infra.lock.lock().await;
+    let _env_restore = reset_route_targets(&test_infra).await?;
+
+    let config_dir_tmp = tempdir()?;
+    let test_server = test_infra
+        .spawn_app(default_app_router(&config_dir_tmp).await?)
+        .await;
+    let app_url = test_server.app_url();
+
+    let response = test_infra
+        .http_client
+        .get(format!("{app_url}/manage/route-targets"))
+        .header(AUTHORIZATION, "Bearer not-a-valid-jwt")
+        .send()
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn manage_routes_reject_non_admin_client() -> Result<()> {
+    let test_infra = TestInfra::get_infra().await;
+    let _lock = test_infra.lock.lock().await;
+    let _env_restore = reset_route_targets(&test_infra).await?;
+
+    let config_dir_tmp = tempdir()?;
+    let test_server = test_infra
+        .spawn_app(default_app_router(&config_dir_tmp).await?)
+        .await;
+    let app_url = test_server.app_url();
+    let auth_header = non_admin_auth_header(&test_infra).await?;
+
+    let response = test_infra
+        .http_client
+        .get(format!("{app_url}/manage/route-targets"))
+        .header(AUTHORIZATION, &auth_header)
+        .send()
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn manage_list_route_targets_returns_all_routes() -> Result<()> {
     let test_infra = TestInfra::get_infra().await;

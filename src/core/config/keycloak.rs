@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 // KEYCLOAK env variables
 pub const KEYCLOAK_REALM_URL: &str = "KEYCLOAK_REALM_URL";
+pub const KEYCLOAK_EXPECTED_AUDIENCE: &str = "KEYCLOAK_EXPECTED_AUDIENCE";
 pub const KEYCLOAK_JWKS_REFRESH_LOOP_INTERVAL_SEC: &str = "KEYCLOAK_JWKS_REFRESH_LOOP_INTERVAL_SEC";
 
 /// `KeycloakConfig` contains keycloak or openid server specific configuration
@@ -9,6 +10,7 @@ pub const KEYCLOAK_JWKS_REFRESH_LOOP_INTERVAL_SEC: &str = "KEYCLOAK_JWKS_REFRESH
 #[serde(default)]
 pub struct KeycloakConfig {
     pub url: String,
+    pub expected_audience: Option<String>,
     pub jwks_refresh_loop_interval_sec: u64,
 }
 
@@ -17,6 +19,7 @@ impl Default for KeycloakConfig {
     fn default() -> Self {
         Self {
             url: String::from("http://localhost:9999/realms/gateway-realm"),
+            expected_audience: None,
             jwks_refresh_loop_interval_sec: 5 * 60,
         }
     }

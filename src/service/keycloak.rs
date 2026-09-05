@@ -34,11 +34,27 @@ pub struct ResourceAccess {
     pub roles: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum Audience {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl Audience {
+    pub fn contains(&self, expected: &str) -> bool {
+        match self {
+            Audience::Single(value) => value == expected,
+            Audience::Multiple(values) => values.iter().any(|value| value == expected),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct KeycloakClaims {
     pub sub: String,
     pub iss: String,
-    pub aud: Option<Vec<String>>,
+    pub aud: Option<Audience>,
     pub exp: usize,
 
     #[serde(default)]
@@ -222,7 +238,13 @@ impl KeycloakService {
         })?;
 
         let decoding_key = DecodingKey::from_rsa_components(&n, &e)?;
-        let validation = Validation::new(Algorithm::RS256);
+        let mut validation = Validation::new(Algorithm::RS256);
+
+        if self.expected_audience.is_none() {
+            validation.validate_aud = false;
+        } else {
+            validation.set_audience(&[self.expected_audience.as_deref().unwrap()]);
+        }
 
         let decoded = jsonwebtoken::decode::<KeycloakClaims>(token, &decoding_key, &validation)
             .map_err(|e| {
@@ -280,19 +302,20 @@ impl KeycloakService {
         }
 
         if let Some(nbf) = claims.nbf
-            && now + clock_skew_seconds < nbf {
-                warn!(
-                    nbf = nbf,
-                    now,
-                    skew = clock_skew_seconds,
-                    "Token not valid yet"
-                );
-                return Err(anyhow!(
-                    "token not valid yet: nbf={} is in the future (now={})",
-                    nbf,
-                    now
-                ));
-            }
+            && now + clock_skew_seconds < nbf
+        {
+            warn!(
+                nbf = nbf,
+                now,
+                skew = clock_skew_seconds,
+                "Token not valid yet"
+            );
+            return Err(anyhow!(
+                "token not valid yet: nbf={} is in the future (now={})",
+                nbf,
+                now
+            ));
+        }
 
         if let Some(iat) = claims.iat {
             if iat > now + clock_skew_seconds {
@@ -324,7 +347,7 @@ impl KeycloakService {
             let has_expected_audience = claims
                 .aud
                 .as_ref()
-                .map(|audiences| audiences.iter().any(|aud| aud == expected_audience))
+                .map(|audiences| audiences.contains(expected_audience))
                 .unwrap_or(false);
 
             if !has_expected_audience {

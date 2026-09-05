@@ -31,7 +31,11 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
     let http_client = Client::builder().build()?;
 
     // create the keycloak service smart pointer, so it's shareable for the whole app
-    let keycloak_service = Arc::new(KeycloakService::new(http_client.clone(), app_config));
+    let mut keycloak_service = KeycloakService::new(http_client.clone(), app_config);
+    if let Some(expected_audience) = &app_config.keycloak_config.expected_audience {
+        keycloak_service.set_expected_audience(expected_audience);
+    }
+    let keycloak_service = Arc::new(keycloak_service);
 
     // warm the cache once at startup so the first request is not blocked on discovery
     if keycloak_service.get_jwks().await.is_ok() {
