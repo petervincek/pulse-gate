@@ -152,10 +152,13 @@ mod tests {
             .expect("failed to create postgres pool");
         let service_routes = Arc::new(dashmap::DashMap::new());
 
+        let route_target_repo = Arc::new(crate::model::route_target::RouteTargetRepo::new(postgres_pool.clone()));
+
         AppState::new(
             redis_pool,
             postgres_pool,
             auth,
+            route_target_repo,
             service_routes,
             Client::new(),
             "test-service",

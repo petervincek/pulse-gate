@@ -7,7 +7,7 @@ use openidconnect::reqwest::Client;
 use reqwest::Client as ReqwestClient;
 
 use crate::{
-    api::{health::health_router, reverse_proxy::dynamic_proxy_router},
+    api::{health::health_router, manage::manage_router, reverse_proxy::dynamic_proxy_router},
     app::state::AppState,
     core::config::common::AppConfig,
     model::{
@@ -43,7 +43,7 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
     refresh_keycloak_service.start_jwks_refresh_loop();
 
     // create route target repository and load the registered routes from the DB
-    let route_target_repo = RouteTargetRepo::new(postgres_pool.clone());
+    let route_target_repo = Arc::new(RouteTargetRepo::new(postgres_pool.clone()));
     let service_routes: Arc<DashMap<PathPrefix, RouteTarget>> = Arc::new(
         route_target_repo
             .list_route_targets()
@@ -61,6 +61,7 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
         redis_pool,
         postgres_pool,
         keycloak_service,
+        route_target_repo,
         service_routes,
         http_client,
         "PulseGate",
@@ -68,6 +69,7 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
 
     // create health router
     let health_router = health_router();
+    let manage_router = manage_router();
 
     // create the dynamic proxy router (responsible for dispatching the incoming requests and streaming back the responses)
     let dynamic_proxy_router = dynamic_proxy_router(app_state.clone());
@@ -75,6 +77,7 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
     // create the main/root level application router
     let app_router = Router::new()
         .nest("/health", health_router)
+        .nest("/manage", manage_router)
         .merge(dynamic_proxy_router)
         .with_state(app_state);
 

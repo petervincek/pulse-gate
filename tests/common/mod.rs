@@ -7,8 +7,8 @@ use std::{
 
 use anyhow::Result;
 use axum::Router;
-use openidconnect::{reqwest::Client};
 use pulse_gate::{app::create_app_router, core::config::{common::ConfigManager, keycloak::KEYCLOAK_REALM_URL, postgres::POSTGRES_URL, redis::REDIS_URL}};
+use reqwest::Client;
 use testcontainers::{
     ContainerAsync, GenericImage, ImageExt, core::{IntoContainerPort, Mount, WaitFor}, runners::AsyncRunner,
 };
