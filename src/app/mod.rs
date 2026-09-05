@@ -34,7 +34,7 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
     let keycloak_service = Arc::new(KeycloakService::new(http_client.clone(), app_config));
 
     // warm the cache once at startup so the first request is not blocked on discovery
-    if let Ok(_) = keycloak_service.get_jwks().await {
+    if keycloak_service.get_jwks().await.is_ok() {
         // no-op: cache initialized successfully
     }
 

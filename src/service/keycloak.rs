@@ -279,8 +279,8 @@ impl KeycloakService {
             ));
         }
 
-        if let Some(nbf) = claims.nbf {
-            if now + clock_skew_seconds < nbf {
+        if let Some(nbf) = claims.nbf
+            && now + clock_skew_seconds < nbf {
                 warn!(
                     nbf = nbf,
                     now,
@@ -293,7 +293,6 @@ impl KeycloakService {
                     now
                 ));
             }
-        }
 
         if let Some(iat) = claims.iat {
             if iat > now + clock_skew_seconds {
