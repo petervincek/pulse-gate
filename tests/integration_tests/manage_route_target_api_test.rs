@@ -2,7 +2,7 @@ use anyhow::Result;
 use pulse_gate::{
     core::config::common::ConfigManager, model::connection_postgres::build_postgres_pool,
 };
-use reqwest::StatusCode;
+use reqwest::{StatusCode, header::AUTHORIZATION};
 use serde_json::{Value, json};
 use tempfile::tempdir;
 
@@ -38,6 +38,13 @@ fn route_payload(
     })
 }
 
+async fn admin_auth_header(test_infra: &TestInfra) -> Result<String> {
+    let token = test_infra
+        .get_client_credentials_token("pulse-gate-admin", "pulse-gate-admin-secret")
+        .await?;
+    Ok(format!("Bearer {token}"))
+}
+
 #[tokio::test]
 async fn manage_list_route_targets_returns_all_routes() -> Result<()> {
     let test_infra = TestInfra::get_infra().await;
@@ -50,9 +57,12 @@ async fn manage_list_route_targets_returns_all_routes() -> Result<()> {
         .await;
     let app_url = test_server.app_url();
 
+    let auth_header = admin_auth_header(&test_infra).await?;
+
     let create_1 = test_infra
         .http_client
         .post(format!("{app_url}/manage/route-targets"))
+        .header(AUTHORIZATION, &auth_header)
         .json(&route_payload(
             "/alpha",
             "http://alpha.internal",
@@ -66,6 +76,7 @@ async fn manage_list_route_targets_returns_all_routes() -> Result<()> {
     let create_2 = test_infra
         .http_client
         .post(format!("{app_url}/manage/route-targets"))
+        .header(AUTHORIZATION, &auth_header)
         .json(&route_payload(
             "/beta",
             "http://beta.internal",
@@ -79,6 +90,7 @@ async fn manage_list_route_targets_returns_all_routes() -> Result<()> {
     let list = test_infra
         .http_client
         .get(format!("{app_url}/manage/route-targets"))
+        .header(AUTHORIZATION, &auth_header)
         .send()
         .await?;
 
@@ -103,9 +115,12 @@ async fn manage_create_route_target_persists_and_returns_created_record() -> Res
         .await;
     let app_url = test_server.app_url();
 
+    let auth_header = admin_auth_header(&test_infra).await?;
+
     let response = test_infra
         .http_client
         .post(format!("{app_url}/manage/route-targets"))
+        .header(AUTHORIZATION, &auth_header)
         .json(&route_payload(
             "/checkout",
             "http://checkout.internal",
@@ -124,6 +139,7 @@ async fn manage_create_route_target_persists_and_returns_created_record() -> Res
     let fetched = test_infra
         .http_client
         .get(format!("{app_url}/manage/route-targets/checkout"))
+        .header(AUTHORIZATION, &auth_header)
         .send()
         .await?;
 
@@ -146,9 +162,12 @@ async fn manage_create_route_target_rejects_malformed_path_prefix() -> Result<()
         .await;
     let app_url = test_server.app_url();
 
+    let auth_header = admin_auth_header(&test_infra).await?;
+
     let response = test_infra
         .http_client
         .post(format!("{app_url}/manage/route-targets"))
+        .header(AUTHORIZATION, &auth_header)
         .json(&route_payload(
             "bad-prefix",
             "http://good.internal",
@@ -175,9 +194,12 @@ async fn manage_create_route_target_rejects_empty_upstream_url() -> Result<()> {
         .await;
     let app_url = test_server.app_url();
 
+    let auth_header = admin_auth_header(&test_infra).await?;
+
     let response = test_infra
         .http_client
         .post(format!("{app_url}/manage/route-targets"))
+        .header(AUTHORIZATION, &auth_header)
         .json(&route_payload("/orders", "", 10, None))
         .send()
         .await?;
@@ -199,9 +221,12 @@ async fn manage_update_route_target_updates_existing_record() -> Result<()> {
         .await;
     let app_url = test_server.app_url();
 
+    let auth_header = admin_auth_header(&test_infra).await?;
+
     let create = test_infra
         .http_client
         .post(format!("{app_url}/manage/route-targets"))
+        .header(AUTHORIZATION, &auth_header)
         .json(&route_payload(
             "/billing",
             "http://billing.internal",
@@ -215,6 +240,7 @@ async fn manage_update_route_target_updates_existing_record() -> Result<()> {
     let update = test_infra
         .http_client
         .put(format!("{app_url}/manage/route-targets/billing"))
+        .header(AUTHORIZATION, &auth_header)
         .json(&route_payload(
             "/billing",
             "http://billing-updated.internal",
@@ -244,9 +270,12 @@ async fn manage_delete_route_target_removes_existing_record() -> Result<()> {
         .await;
     let app_url = test_server.app_url();
 
+    let auth_header = admin_auth_header(&test_infra).await?;
+
     let create = test_infra
         .http_client
         .post(format!("{app_url}/manage/route-targets"))
+        .header(AUTHORIZATION, &auth_header)
         .json(&route_payload(
             "/archive",
             "http://archive.internal",
@@ -260,6 +289,7 @@ async fn manage_delete_route_target_removes_existing_record() -> Result<()> {
     let delete = test_infra
         .http_client
         .delete(format!("{app_url}/manage/route-targets/archive"))
+        .header(AUTHORIZATION, &auth_header)
         .send()
         .await?;
     assert_eq!(delete.status(), StatusCode::NO_CONTENT);
@@ -267,6 +297,7 @@ async fn manage_delete_route_target_removes_existing_record() -> Result<()> {
     let fetch = test_infra
         .http_client
         .get(format!("{app_url}/manage/route-targets/archive"))
+        .header(AUTHORIZATION, &auth_header)
         .send()
         .await?;
     assert_eq!(fetch.status(), StatusCode::NOT_FOUND);

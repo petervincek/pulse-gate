@@ -92,13 +92,13 @@ pub async fn require_admin_role(
         .realm_access
         .roles
         .iter()
-        .any(|role| role == "ADMIN")
+        .any(|role| role.eq_ignore_ascii_case("ADMIN"))
         || principal
             .claims
             .resource_access
             .values()
             .flat_map(|access| access.roles.iter())
-            .any(|role| role == "ADMIN");
+            .any(|role| role.eq_ignore_ascii_case("ADMIN"));
 
     if !has_admin_role {
         return Err(StatusCode::FORBIDDEN);

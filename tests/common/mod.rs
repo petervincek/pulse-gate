@@ -5,10 +5,11 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::Router;
 use pulse_gate::{app::create_app_router, core::config::{common::ConfigManager, keycloak::KEYCLOAK_REALM_URL, postgres::POSTGRES_URL, redis::REDIS_URL}};
 use reqwest::Client;
+use serde_json::Value;
 use testcontainers::{
     ContainerAsync, GenericImage, ImageExt, core::{IntoContainerPort, Mount, WaitFor}, runners::AsyncRunner,
 };
@@ -199,6 +200,46 @@ impl TestInfra {
             unsafe { env::set_var(key, value) };
         }
         env_restore
+    }
+
+    pub async fn get_client_credentials_token(
+        &self,
+        client_id: &str,
+        client_secret: &str,
+    ) -> Result<String> {
+        let realm_url = self
+            .env_variables
+            .get(KEYCLOAK_REALM_URL)
+            .context("keycloak realm url is not configured in test infra")?;
+
+        let token_url = format!("{realm_url}/protocol/openid-connect/token");
+        let body = format!(
+            "grant_type=client_credentials&client_id={client_id}&client_secret={client_secret}"
+        );
+
+        let response = self
+            .http_client
+            .post(&token_url)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body: Value = response.json().await?;
+
+        if !status.is_success() {
+            anyhow::bail!(
+                "failed to fetch client credentials token from Keycloak: status={status}, body={body}"
+            );
+        }
+
+        let access_token = body
+            .get("access_token")
+            .and_then(|token| token.as_str())
+            .context("Keycloak client_credentials token response did not contain access_token")?;
+
+        Ok(access_token.to_string())
     }
 }
 

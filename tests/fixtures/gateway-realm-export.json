@@ -31,6 +31,22 @@
       "webOrigins": [
         "*"
       ]
+    },
+    {
+      "clientId": "pulse-gate-admin",
+      "name": "Pulse Gate Admin Client",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "pulse-gate-admin-secret",
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "redirectUris": [
+        "*"
+      ],
+      "webOrigins": [
+        "*"
+      ]
     }
   ],
   "users": [
@@ -50,6 +66,14 @@
       ],
       "realmRoles": [
         "user"
+      ]
+    },
+    {
+      "username": "service-account-pulse-gate-admin",
+      "enabled": true,
+      "serviceAccountClientId": "pulse-gate-admin",
+      "realmRoles": [
+        "admin"
       ]
     }
   ]
