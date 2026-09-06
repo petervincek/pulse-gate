@@ -1,7 +1,10 @@
 use anyhow::Result;
 use pulse_gate::{
     core::config::common::ConfigManager,
-    model::{connection_postgres::build_postgres_pool, route_target::RouteTargetRepo},
+    model::{
+        call_stats::CallStatsRepo, connection_postgres::build_postgres_pool,
+        connection_redis::build_redis_pool, route_target::RouteTargetRepo,
+    },
 };
 use reqwest::{StatusCode, header::AUTHORIZATION};
 use serde_json::{Value, json};
@@ -17,6 +20,10 @@ async fn reset_route_targets(test_infra: &TestInfra) -> Result<EnvRestore> {
         .load_or_create()?
         .merge_with_env();
     RouteTargetRepo::new(build_postgres_pool(&app_config).await?)
+        .clear_all()
+        .await?;
+
+    CallStatsRepo::new(build_redis_pool(&app_config).await?)
         .clear_all()
         .await?;
 
@@ -142,6 +149,65 @@ async fn reverse_proxy_rejects_request_when_required_role_is_missing() -> Result
         .await?;
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn reverse_proxy_rejects_request_when_client_exceeds_rate_limit() -> Result<()> {
+    let test_infra = TestInfra::get_infra().await;
+    let _lock = test_infra.lock.lock().await;
+
+    let _env_restore = reset_route_targets(&test_infra).await?;
+
+    let config_dir_tmp = tempdir()?;
+    let test_server = test_infra
+        .spawn_app(default_app_router(&config_dir_tmp).await?)
+        .await;
+    let app_url = test_server.app_url();
+    let admin_header = admin_auth_header(&test_infra).await?;
+
+    let create_route = test_infra
+        .http_client
+        .post(format!("{app_url}/manage/route-targets"))
+        .header(AUTHORIZATION, &admin_header)
+        .json(&json!({
+            "path_prefix": "/api/v1/target-service-a",
+            "upstream_base_url": test_infra.target_service_a_url(),
+            "rate_limit_per_min": 1,
+            "required_role": "target-service-a",
+        }))
+        .send()
+        .await?;
+
+    assert_eq!(
+        create_route.status(),
+        StatusCode::CREATED,
+        "{:?}",
+        create_route.text().await?
+    );
+
+    let target_service_header =
+        target_service_auth_header(&test_infra, "client-x-service", "client-x-service-secret")
+            .await?;
+
+    let first_response = test_infra
+        .http_client
+        .get(format!("{app_url}/api/v1/target-service-a/payment"))
+        .header(AUTHORIZATION, &target_service_header)
+        .send()
+        .await?;
+
+    assert_eq!(first_response.status(), StatusCode::OK);
+
+    let second_response = test_infra
+        .http_client
+        .get(format!("{app_url}/api/v1/target-service-a/payment"))
+        .header(AUTHORIZATION, &target_service_header)
+        .send()
+        .await?;
+
+    assert_eq!(second_response.status(), StatusCode::TOO_MANY_REQUESTS);
 
     Ok(())
 }

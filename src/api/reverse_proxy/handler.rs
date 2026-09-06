@@ -16,7 +16,10 @@ pub async fn dynamic_proxy_handler(
     uri: Uri,
     body: Body,
 ) -> Result<Response<Body>, StatusCode> {
-    let client_id = principal.claims.effective_client_id().unwrap();
+    let client_id = principal
+        .claims
+        .effective_client_id()
+        .unwrap_or(principal.subject.as_str());
     let raw_path = uri.path();
     let query = uri.query().unwrap_or_default();
 
@@ -78,7 +81,38 @@ pub async fn dynamic_proxy_handler(
         }
     }
 
-    // 3. Path Rewriting
+    // 3. Per-client, per-target rate limit enforcement
+    let rate_limit_decision = state
+        .call_stats_repo
+        .record_call_and_check_minute_limit(&prefix, client_id, target_config.rate_limit_per_min)
+        .await
+        .map_err(|err| {
+            warn!(
+                method = %method,
+                path = %raw_path,
+                matched_prefix = %prefix,
+                client_id = %client_id,
+                error = %err,
+                "Failed to update call statistics or apply rate limit"
+            );
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if !rate_limit_decision.allowed {
+        warn!(
+            method = %method,
+            path = %raw_path,
+            matched_prefix = %prefix,
+            client_id = %client_id,
+            limit_per_minute = rate_limit_decision.limit_per_minute,
+            current_count = rate_limit_decision.current_count,
+            bucket = %rate_limit_decision.bucket,
+            "Client exceeded per-minute rate limit for target"
+        );
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    // 4. Path Rewriting
     // Example: Incoming "/api/v1/payments/invoices/123" with prefix "/api/v1/payments"
     // Strips prefix -> "/invoices/123"
     let sub_path = raw_path.strip_prefix(&prefix).unwrap_or("");
@@ -113,7 +147,7 @@ pub async fn dynamic_proxy_handler(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    // 4. Construct Forwarding Request
+    // 5. Construct Forwarding Request
     let mut req_builder = state.http_client.request(method, target_uri);
 
     // Copy incoming headers (excluding host-specific headers)
@@ -139,7 +173,7 @@ pub async fn dynamic_proxy_handler(
     let reqwest_body = reqwest::Body::wrap_stream(body.into_data_stream());
     let upstream_req = req_builder.body(reqwest_body);
 
-    // 5. Send Request to Upstream Service
+    // 6. Send Request to Upstream Service
     let upstream_start = Instant::now();
     let upstream_resp = upstream_req.send().await.map_err(|err| {
         warn!(
@@ -151,7 +185,7 @@ pub async fn dynamic_proxy_handler(
         StatusCode::BAD_GATEWAY
     })?;
 
-    // 6. Convert Reqwest Response back to Axum Response
+    // 7. Convert Reqwest Response back to Axum Response
     let status = upstream_resp.status();
     let upstream_latency_ms = upstream_start.elapsed().as_millis();
 

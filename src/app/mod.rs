@@ -11,6 +11,7 @@ use crate::{
     app::state::AppState,
     core::config::common::AppConfig,
     model::{
+        call_stats::CallStatsRepo,
         connection_postgres::build_postgres_pool,
         connection_redis::build_redis_pool,
         route_target::{PathPrefix, RouteTarget, RouteTargetRepo},
@@ -57,6 +58,9 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
             .collect(),
     );
 
+    // create the calls stats repo (backed by Redis)
+    let call_stats_repo = Arc::new(CallStatsRepo::new(redis_pool.clone()));
+
     // create http client
     let http_client = ReqwestClient::default();
 
@@ -66,6 +70,7 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
         postgres_pool,
         keycloak_service,
         route_target_repo,
+        call_stats_repo,
         service_routes,
         http_client,
         "PulseGate",
