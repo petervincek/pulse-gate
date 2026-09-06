@@ -16,6 +16,10 @@
       {
         "name": "target-service-a",
         "description": "Role required to access proxied upstream services"
+      },
+      {
+        "name": "target-service-down",
+        "description": "Role required to access proxied upstream services"
       }
     ]
   },
@@ -67,6 +71,22 @@
       "webOrigins": [
         "*"
       ]
+    },
+    {
+      "clientId": "client-y-service",
+      "name": "Target Service Y Client (target service is down)",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "client-y-service-secret",
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "redirectUris": [
+        "*"
+      ],
+      "webOrigins": [
+        "*"
+      ]
     }
   ],
   "users": [
@@ -102,6 +122,14 @@
       "serviceAccountClientId": "client-x-service",
       "realmRoles": [
         "target-service-a"
+      ]
+    },
+    {
+      "username": "service-account-client-y-service",
+      "enabled": true,
+      "serviceAccountClientId": "client-y-service",
+      "realmRoles": [
+        "target-service-down"
       ]
     }
   ]

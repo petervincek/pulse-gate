@@ -234,3 +234,53 @@ async fn reverse_proxy_rejects_expired_or_invalid_bearer_token() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn reverse_proxy_returns_bad_gateway_when_upstream_service_is_down() -> Result<()> {
+    let test_infra = TestInfra::get_infra().await;
+    let _lock = test_infra.lock.lock().await;
+
+    let _env_restore = reset_route_targets(&test_infra).await?;
+
+    let config_dir_tmp = tempdir()?;
+    let test_server = test_infra
+        .spawn_app(default_app_router(&config_dir_tmp).await?)
+        .await;
+    let app_url = test_server.app_url();
+    let admin_header = admin_auth_header(&test_infra).await?;
+
+    let create_route = test_infra
+        .http_client
+        .post(format!("{app_url}/manage/route-targets"))
+        .header(AUTHORIZATION, &admin_header)
+        .json(&json!({
+            "path_prefix": "/api/v1/downstream-service",
+            "upstream_base_url": "http://127.0.0.1:1",
+            "rate_limit_per_min": 60,
+            "required_role": "target-service-down",
+        }))
+        .send()
+        .await?;
+
+    assert_eq!(
+        create_route.status(),
+        StatusCode::CREATED,
+        "{:?}",
+        create_route.text().await?
+    );
+
+    let service_header =
+        target_service_auth_header(&test_infra, "client-y-service", "client-y-service-secret")
+            .await?;
+
+    let response = test_infra
+        .http_client
+        .get(format!("{app_url}/api/v1/downstream-service/health"))
+        .header(AUTHORIZATION, &service_header)
+        .send()
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+
+    Ok(())
+}
