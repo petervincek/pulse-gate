@@ -57,6 +57,12 @@ pub struct KeycloakClaims {
     pub aud: Option<Audience>,
     pub exp: usize,
 
+    #[serde(default, alias = "azp")]
+    pub azp: Option<String>,
+
+    #[serde(default, alias = "client_id")]
+    pub client_id: Option<String>,
+
     #[serde(default)]
     pub nbf: Option<usize>,
 
@@ -68,6 +74,12 @@ pub struct KeycloakClaims {
 
     #[serde(default)]
     pub resource_access: HashMap<String, ResourceAccess>,
+}
+
+impl KeycloakClaims {
+    pub fn effective_client_id(&self) -> Option<&str> {
+        self.azp.as_deref().or(self.client_id.as_deref())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -279,6 +291,9 @@ impl KeycloakService {
             nbf = claims.nbf,
             iat = claims.iat,
             aud = ?claims.aud,
+            azp = claims.azp.as_deref(),
+            client_id = claims.client_id.as_deref(),
+            effective_client_id = claims.effective_client_id(),
             now,
             "Validating Keycloak token claims"
         );

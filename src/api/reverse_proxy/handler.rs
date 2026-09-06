@@ -16,6 +16,7 @@ pub async fn dynamic_proxy_handler(
     uri: Uri,
     body: Body,
 ) -> Result<Response<Body>, StatusCode> {
+    let client_id = principal.claims.effective_client_id().unwrap();
     let raw_path = uri.path();
     let query = uri.query().unwrap_or_default();
 
@@ -23,6 +24,7 @@ pub async fn dynamic_proxy_handler(
         method = %method,
         path = %raw_path,
         query = %query,
+        client_id = %client_id,
         "Handling reverse proxy request"
     );
 

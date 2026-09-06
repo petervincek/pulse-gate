@@ -232,6 +232,8 @@ mod tests {
                 iss: "http://localhost:8080/realms/test".to_string(),
                 aud: Some(Audience::Multiple(vec!["pulse-gate".to_string()])),
                 exp: 9_999_999_999usize,
+                azp: Some("test-client".to_string()),
+                client_id: Some("test-client".to_string()),
                 nbf: None,
                 iat: None,
                 realm_access: RealmAccess::default(),
