@@ -1,17 +1,15 @@
 use std::{
-    collections::HashMap,
-    env,
-    sync::{Arc, atomic::{AtomicU64, Ordering}},
-    time::{SystemTime, UNIX_EPOCH},
+    collections::HashMap, env, sync::{Arc, atomic::{AtomicU64, Ordering}}, time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
 use axum::Router;
+use openidconnect::url::Host;
 use pulse_gate::{app::create_app_router, core::config::{common::ConfigManager, keycloak::KEYCLOAK_REALM_URL, postgres::POSTGRES_URL, redis::REDIS_URL}};
 use reqwest::Client;
 use serde_json::Value;
 use testcontainers::{
-    ContainerAsync, GenericImage, ImageExt, core::{IntoContainerPort, Mount, WaitFor}, runners::AsyncRunner,
+    ContainerAsync, GenericImage, ImageExt, core::{ IntoContainerPort, Mount, WaitFor}, runners::AsyncRunner,
 };
 use tokio::{sync::{Mutex, OnceCell}, task::JoinHandle};
 use tempfile::TempDir;
@@ -29,6 +27,8 @@ const POSTGRES_DB: &str = "pulse_gate_dev";
 const KEYCLOAK_IMAGE: &str = "keycloak/keycloak:26.7";
 const KEYCLOAK_PORT: u16 = 8080_u16;
 const KEYCLOAK_REALM: &str = "gateway-realm";
+const TARGET_SERVICE_IMAGE: &str = "traefik/whoami:latest";
+const TARGET_SERVICE_PORT: u16 = 80_u16;
 const TEST_INFRA_LABEL_KEY: &str = "pulse-gate-test";
 const TEST_INFRA_LABEL_VALUE: &str = "true";
 const TEST_INFRA_NAME_PREFIX: &str = "pulse-gate-test-";
@@ -78,6 +78,7 @@ pub struct TestInfra {
     _redis: ContainerAsync<GenericImage>,       // redis container
     _postgres: ContainerAsync<GenericImage>,    // postgres container
     _keycloak: ContainerAsync<GenericImage>,    // keycloak container
+    _target_service_a: (ContainerAsync<GenericImage>, Host, u16), // target service A (one destination for the proxy)
     pub http_client: Client, // http client pool
     pub env_variables: HashMap<String, String>, // map to hold env variables with connection strings
     pub lock: Mutex<()>, // mutex lock to ensure the infra is available just to one test at the time
@@ -127,15 +128,30 @@ impl TestInfra {
                 .with_container_name(unique_test_infra_name(&format!("{}keycloak-", TEST_INFRA_NAME_PREFIX)))
                 .with_cmd(vec!["start-dev", "--import-realm"]);
 
+                let target_service_a = GenericImage::new(
+                    TARGET_SERVICE_IMAGE.split(":").collect::<Vec<&str>>()[0],
+                    TARGET_SERVICE_IMAGE.split(":").collect::<Vec<&str>>()[1],
+                )
+                .with_exposed_port(TARGET_SERVICE_PORT.tcp())
+                // .with_wait_for(WaitFor::message_on_stdout(
+                //     "Starting up on port 80",
+                // ))
+                .with_wait_for(WaitFor::Duration { length: Duration::from_secs(2) })
+                .with_env_var("WHOAMI_NAME", "target-service-a")
+                .with_label(TEST_INFRA_LABEL_KEY, TEST_INFRA_LABEL_VALUE)
+                .with_container_name(unique_test_infra_name(&format!("{}target-service-a-", TEST_INFRA_NAME_PREFIX)));
+
                 // start the container in parallel to save time
-                let (redis, postgres, keycloak) = tokio::join!(
+                let (redis, postgres, keycloak, target_service_a) = tokio::join!(
                     redis_container.start(),
                     postgres_container.start(),
-                    keyloack_container.start()
+                    keyloack_container.start(),
+                    target_service_a.start(),
                 );
                 let redis = redis.expect("failed to start Redis test container");
                 let postgres = postgres.expect("failed to start Postgres test container");
                 let keycloak = keycloak.expect("failed to start Keycloak test container");
+                let target_service_a = target_service_a.expect("failed to start Target Service A test container");
 
                 let redis_host = redis.get_host().await.unwrap();
                 let redis_port = redis.get_host_port_ipv4(REDIS_PORT).await.unwrap();
@@ -149,6 +165,9 @@ impl TestInfra {
                 let keycloak_port = keycloak.get_host_port_ipv4(KEYCLOAK_PORT).await.unwrap();
                 let keycloak_realm_url =
                     format!("http://{keycloak_host}:{keycloak_port}/realms/{KEYCLOAK_REALM}");
+
+                let target_service_a_host = target_service_a.get_host().await.unwrap();
+                let target_service_a_port = target_service_a.get_host_port_ipv4(TARGET_SERVICE_PORT).await.unwrap();
                 
                 let mut env_variables: HashMap<String, String> = HashMap::new();
                 env_variables.insert(REDIS_URL.to_string(), redis_url);
@@ -159,6 +178,7 @@ impl TestInfra {
                     _redis: redis,
                     _postgres: postgres,
                     _keycloak: keycloak,
+                    _target_service_a: (target_service_a, target_service_a_host, target_service_a_port),
                     http_client: Client::new(),
                     env_variables,
                     lock: Mutex::new(()),
@@ -200,6 +220,11 @@ impl TestInfra {
             unsafe { env::set_var(key, value) };
         }
         env_restore
+    }
+
+    pub fn target_service_a_url(&self) -> String {
+        let (_, host, port) = &self._target_service_a;
+        format!("http://{host}:{port}")
     }
 
     pub async fn get_client_credentials_token(

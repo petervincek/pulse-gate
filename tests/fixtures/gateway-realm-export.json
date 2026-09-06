@@ -12,6 +12,10 @@
       {
         "name": "admin",
         "description": "Administrator test role"
+      },
+      {
+        "name": "target-service-a",
+        "description": "Role required to access proxied upstream services"
       }
     ]
   },
@@ -38,6 +42,22 @@
       "enabled": true,
       "publicClient": false,
       "secret": "pulse-gate-admin-secret",
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "redirectUris": [
+        "*"
+      ],
+      "webOrigins": [
+        "*"
+      ]
+    },
+    {
+      "clientId": "client-x-service",
+      "name": "Target Service A Client",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "client-x-service-secret",
       "directAccessGrantsEnabled": false,
       "standardFlowEnabled": false,
       "serviceAccountsEnabled": true,
@@ -74,6 +94,14 @@
       "serviceAccountClientId": "pulse-gate-admin",
       "realmRoles": [
         "admin"
+      ]
+    },
+    {
+      "username": "service-account-client-x-service",
+      "enabled": true,
+      "serviceAccountClientId": "client-x-service",
+      "realmRoles": [
+        "target-service-a"
       ]
     }
   ]
