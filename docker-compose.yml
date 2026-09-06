@@ -1,0 +1,104 @@
+services:
+  redis:
+    image: redis:8-alpine
+    container_name: pulse-gate-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: pulse-gate-postgres
+    ports:
+      - '5555:5432'
+    environment:
+      POSTGRES_USER: pulse_gate
+      POSTGRES_PASSWORD: pulse_gate_password
+      POSTGRES_DB: pulse_gate_dev
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    restart: unless-stopped
+
+  keycloak:
+    image: keycloak/keycloak:26.7
+    container_name: pulse-gate-keycloak
+    ports:
+      - '9999:8080'
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+      - ./tests/fixtures/gateway-realm-export.json:/opt/keycloak/data/import/realm.json:ro
+    command: ["start-dev", "--import-realm"]
+    restart: unless-stopped
+
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: pulse-gate-redisinsight
+    ports:
+      - '9001:5540'
+    environment:
+      - REDIS_INSIGHT_SERVER_MODE=1
+    restart: unless-stopped
+    depends_on:
+      - redis
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pulse-gate-pgadmin
+    ports:
+      - '9002:80'
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    restart: unless-stopped
+    depends_on:
+      - postgres
+
+  adminer:
+    image: adminer:latest
+    container_name: pulse-gate-adminer
+    ports:
+      - '9003:8080'
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+
+  # Reverse proxy test targets - stand-ins for real upstream services during local dev
+  target-service-a:
+    image: traefik/whoami:latest
+    container_name: pulse-gate-target-a
+    ports:
+      - '9101:80'
+    environment:
+      WHOAMI_NAME: target-service-a
+    restart: unless-stopped
+
+  target-service-b:
+    image: traefik/whoami:latest
+    container_name: pulse-gate-target-b
+    ports:
+      - '9102:80'
+    environment:
+      WHOAMI_NAME: target-service-b
+    restart: unless-stopped
+
+  target-httpbin:
+    image: mccutchen/go-httpbin:latest
+    container_name: pulse-gate-target-httpbin
+    ports:
+      - '9103:8080'
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  postgres_data:
+  pgadmin_data:
+
+  
