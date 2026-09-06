@@ -16,6 +16,7 @@ mod tests {
             REDIS_POOL_MAX_SIZE, REDIS_POOL_RECYCLE_SECONDS, REDIS_POOL_TIMEOUT_MS,
             REDIS_POOL_WAIT_TIMEOUT_MS, REDIS_URL, REDIS_VALIDATE_ON_STARTUP,
         },
+        server::SERVER_PORT,
     };
     use std::{env, fs, sync::Mutex};
     use tempfile::tempdir;
@@ -62,6 +63,12 @@ mod tests {
             env::remove_var(KEYCLOAK_REALM_URL);
             env::remove_var(KEYCLOAK_EXPECTED_AUDIENCE);
             env::remove_var(KEYCLOAK_JWKS_REFRESH_LOOP_INTERVAL_SEC);
+        }
+    }
+
+    fn clear_server_env_vars() {
+        unsafe {
+            env::remove_var(SERVER_PORT);
         }
     }
 
@@ -170,6 +177,47 @@ mod tests {
         let actual = manager.load_or_create().expect("load_or_create failed");
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn merge_with_env_overrides_server_port() {
+        with_env_lock(|| {
+            clear_server_env_vars();
+            clear_redis_env_vars();
+            clear_postgres_env_vars();
+            unsafe {
+                env::set_var(SERVER_PORT, "8080");
+            }
+
+            let merged = AppConfig::default().merge_with_env();
+
+            assert_eq!(merged.server_config.port, 8080);
+
+            clear_server_env_vars();
+            clear_postgres_env_vars();
+            clear_redis_env_vars();
+        });
+    }
+
+    #[test]
+    fn merge_with_env_ignores_invalid_server_port() {
+        with_env_lock(|| {
+            clear_server_env_vars();
+            clear_redis_env_vars();
+            clear_postgres_env_vars();
+            unsafe {
+                env::set_var(SERVER_PORT, "not-a-port");
+            }
+
+            let original = AppConfig::default();
+            let merged = original.clone().merge_with_env();
+
+            assert_eq!(merged.server_config.port, original.server_config.port);
+
+            clear_server_env_vars();
+            clear_postgres_env_vars();
+            clear_redis_env_vars();
+        });
     }
 
     #[test]

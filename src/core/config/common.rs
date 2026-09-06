@@ -14,6 +14,7 @@ use crate::core::config::redis::{
     REDIS_POOL_MAX_SIZE, REDIS_POOL_RECYCLE_SECONDS, REDIS_POOL_TIMEOUT_MS,
     REDIS_POOL_WAIT_TIMEOUT_MS, REDIS_URL, REDIS_VALIDATE_ON_STARTUP, RedisConfig,
 };
+use crate::core::config::server::{SERVER_PORT, ServerConfig};
 use anyhow::Result;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,8 @@ use serde::{Deserialize, Serialize};
 /// `AppConfig` contains the whole app configuration
 #[derive(Debug, Serialize, Deserialize, Default, PartialEq, Clone)]
 pub struct AppConfig {
+    #[serde(default)]
+    pub server_config: ServerConfig,
     #[serde(default)]
     pub logging_config: LoggingConfig,
     #[serde(default)]
@@ -33,9 +36,19 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn merge_with_env(self) -> Self {
-        self.merge_with_redis_env()
+        self.merge_with_server_env()
+            .merge_with_redis_env()
             .merge_with_postgres_env()
             .merge_with_keycloak_env()
+    }
+
+    fn merge_with_server_env(mut self) -> Self {
+        self.server_config.port = env::var(SERVER_PORT)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(self.server_config.port);
+
+        self
     }
 
     fn merge_with_redis_env(mut self) -> Self {

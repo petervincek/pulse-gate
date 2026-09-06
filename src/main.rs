@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
     // prepare the config manager
     let config_manager = Arc::new(ConfigManager::default());
     // try to load the configuration
-    let app_config = load_app_config(&config_manager);
+    let app_config = load_app_config(&config_manager).merge_with_env();
     // prepare the log manager
     let log_manager = LogManager::new(config_manager.clone());
 
@@ -49,8 +49,9 @@ async fn main() -> Result<()> {
     println!("PulseGate starting ...");
 
     // create a TCP listener
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    println!("PulseGate started at: 127.0.0.1:3000");
+    let server_port = app_config.server_config.port;
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{server_port}")).await?;
+    println!("PulseGate started at: 127.0.0.1:{server_port}");
     // bind the application to a port listener
     axum::serve(listener, app_router).await?;
     Ok(())
