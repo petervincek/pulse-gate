@@ -6,7 +6,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{app::state::AppState, model::route_target::RouteTarget};
+use crate::{
+    app::state::AppState,
+    model::{route_target::RouteTarget, route_target_event::RouteTargetEvent},
+};
 
 fn normalize_path_prefix(path_prefix: &str) -> String {
     let trimmed = path_prefix.trim();
@@ -127,10 +130,19 @@ pub async fn create_route_target(
         .await
         .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
 
-    // TODO: can be think about implementing an approach that will sync across instances of this proxy server ???
     state
         .service_routes
         .insert(created.path_prefix.clone(), created.clone());
+    let route_version = state
+        .route_target_event_repo
+        .next_route_version(&created.path_prefix)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    state
+        .route_target_event_repo
+        .publish_route_event(&RouteTargetEvent::created(created.clone(), route_version))
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
     Ok((StatusCode::CREATED, Json(created)))
 }
@@ -164,6 +176,16 @@ pub async fn update_route_target(
     state
         .service_routes
         .insert(updated.path_prefix.clone(), updated.clone());
+    let route_version = state
+        .route_target_event_repo
+        .next_route_version(&updated.path_prefix)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    state
+        .route_target_event_repo
+        .publish_route_event(&RouteTargetEvent::updated(updated.clone(), route_version))
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
     Ok((StatusCode::OK, Json(updated)))
 }
@@ -182,6 +204,19 @@ pub async fn delete_route_target(
         .map_err(|err| (StatusCode::NOT_FOUND, err.to_string()))?;
 
     state.service_routes.remove(&normalized_path_prefix);
+    let route_version = state
+        .route_target_event_repo
+        .next_route_version(&normalized_path_prefix)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    state
+        .route_target_event_repo
+        .publish_route_event(&RouteTargetEvent::deleted(
+            normalized_path_prefix.clone(),
+            route_version,
+        ))
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
     Ok(StatusCode::NO_CONTENT)
 }

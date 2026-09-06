@@ -2338,6 +2338,7 @@ dependencies = [
  "dashmap",
  "deadpool-redis",
  "directories",
+ "futures-util",
  "http-body-util",
  "hyper",
  "jsonwebtoken",

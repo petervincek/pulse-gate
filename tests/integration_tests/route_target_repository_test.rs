@@ -1,9 +1,14 @@
+use std::{sync::Arc, time::Duration};
+
 use anyhow::Result;
+use dashmap::DashMap;
 use pulse_gate::{
     core::config::common::ConfigManager,
     model::{
         connection_postgres::build_postgres_pool,
+        connection_redis::build_redis_pool,
         route_target::{RouteTarget, RouteTargetRepo},
+        route_target_event::{RouteTargetEvent, RouteTargetEventRepo},
     },
 };
 use tempfile::tempdir;
@@ -280,6 +285,114 @@ async fn clear_all_is_idempotent_when_repository_is_already_empty() -> Result<()
 
     let routes = repo.list_route_targets().await?;
     assert!(routes.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn hydrate_route_versions_seeds_the_redis_route_version_hash() -> Result<()> {
+    let test_infra = TestInfra::get_infra().await;
+    let _lock = test_infra.lock.lock().await;
+    let _env_restore = test_infra.export_env_variables(None);
+
+    let config_dir_tmp = tempdir()?;
+    let config_manager = ConfigManager::new(Some(config_dir_tmp.path().to_path_buf()));
+    let app_config = config_manager.load_or_create()?.merge_with_env();
+    let redis_pool = build_redis_pool(&app_config).await?;
+    let event_repo = RouteTargetEventRepo::new(redis_pool.clone());
+
+    let service_routes: Arc<DashMap<String, RouteTarget>> = Arc::new(DashMap::new());
+    let route_versions: Arc<DashMap<String, u64>> = Arc::new(DashMap::new());
+    let route = route_target(
+        "/seeded-route",
+        "http://seeded-route.internal",
+        42,
+        Some("seeded-role"),
+    );
+
+    service_routes.insert(route.path_prefix.clone(), route.clone());
+    event_repo
+        .hydrate_route_versions(&service_routes, &route_versions)
+        .await?;
+
+    assert_eq!(
+        route_versions.get(&route.path_prefix).map(|value| *value),
+        Some(0)
+    );
+    assert_eq!(
+        event_repo.current_route_version(&route.path_prefix).await?,
+        0
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn publish_route_event_updates_local_cache_via_listener() -> Result<()> {
+    let test_infra = TestInfra::get_infra().await;
+    let _lock = test_infra.lock.lock().await;
+    let _env_restore = test_infra.export_env_variables(None);
+
+    let config_dir_tmp = tempdir()?;
+    let config_manager = ConfigManager::new(Some(config_dir_tmp.path().to_path_buf()));
+    let app_config = config_manager.load_or_create()?.merge_with_env();
+    let redis_pool = build_redis_pool(&app_config).await?;
+    let event_repo = RouteTargetEventRepo::new(redis_pool.clone());
+
+    let service_routes: Arc<DashMap<String, RouteTarget>> = Arc::new(DashMap::new());
+    let route_versions: Arc<DashMap<String, u64>> = Arc::new(DashMap::new());
+    let listener_routes = service_routes.clone();
+    let listener_versions = route_versions.clone();
+    event_repo
+        .start_route_change_listener(
+            listener_routes,
+            listener_versions,
+            &app_config.redis_config.url,
+        )
+        .await?;
+
+    let route = route_target(
+        "/route-sync",
+        "http://route-sync.internal",
+        42,
+        Some("route-sync-role"),
+    );
+    let newer_route = route_target(
+        "/route-sync",
+        "http://route-sync-new.internal",
+        84,
+        Some("route-sync-role-updated"),
+    );
+
+    let stale_version = 1_u64;
+    let current_version = 2_u64;
+
+    event_repo
+        .publish_route_event(&RouteTargetEvent::updated(
+            newer_route.clone(),
+            current_version,
+        ))
+        .await?;
+    event_repo
+        .publish_route_event(&RouteTargetEvent::updated(route.clone(), stale_version))
+        .await?;
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if service_routes.contains_key(&route.path_prefix) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await?;
+
+    let cached = service_routes.get(&route.path_prefix).unwrap();
+    assert_eq!(*cached, newer_route);
+    assert_eq!(
+        *route_versions.get(&route.path_prefix).unwrap(),
+        current_version
+    );
 
     Ok(())
 }

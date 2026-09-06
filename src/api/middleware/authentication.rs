@@ -179,7 +179,10 @@ mod tests {
             AuthService, require_admin_role, require_role, require_valid_token,
         },
         app::state::AppState,
-        model::{call_stats::CallStatsRepo, route_target::RouteTargetRepo},
+        model::{
+            call_stats::CallStatsRepo, route_target::RouteTargetRepo,
+            route_target_event::RouteTargetEventRepo,
+        },
         service::keycloak::{
             Audience, KeycloakClaims, KeycloakMetadata, RealmAccess, ResourceAccess,
             VerifiedPrincipal,
@@ -265,6 +268,7 @@ mod tests {
         let service_routes = Arc::new(dashmap::DashMap::new());
 
         let route_target_repo = Arc::new(RouteTargetRepo::new(postgres_pool.clone()));
+        let route_target_event_repo = Arc::new(RouteTargetEventRepo::new(redis_pool.clone()));
         let call_stats_repo = Arc::new(CallStatsRepo::new(redis_pool.clone()));
 
         AppState::new(
@@ -272,6 +276,7 @@ mod tests {
             postgres_pool,
             auth,
             route_target_repo,
+            route_target_event_repo,
             call_stats_repo,
             service_routes,
             Client::new(),

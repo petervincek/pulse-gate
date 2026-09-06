@@ -15,6 +15,7 @@ use crate::{
         connection_postgres::build_postgres_pool,
         connection_redis::build_redis_pool,
         route_target::{PathPrefix, RouteTarget, RouteTargetRepo},
+        route_target_event::RouteTargetEventRepo,
     },
     service::keycloak::KeycloakService,
 };
@@ -57,6 +58,22 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
             .map(|route_target| (route_target.path_prefix.clone(), route_target))
             .collect(),
     );
+    let route_versions: Arc<DashMap<PathPrefix, u64>> = Arc::new(DashMap::new());
+
+    // create the Redis-backed route-target event repository and hydrate the baseline version state
+    let route_target_event_repo = Arc::new(RouteTargetEventRepo::new(redis_pool.clone()));
+    route_target_event_repo
+        .hydrate_route_versions(&service_routes, &route_versions)
+        .await?;
+
+    // subscribe to route events only after the startup baseline has been hydrated
+    route_target_event_repo
+        .start_route_change_listener(
+            service_routes.clone(),
+            route_versions,
+            &app_config.redis_config.url,
+        )
+        .await?;
 
     // create the calls stats repo (backed by Redis)
     let call_stats_repo = Arc::new(CallStatsRepo::new(redis_pool.clone()));
@@ -70,6 +87,7 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
         postgres_pool,
         keycloak_service,
         route_target_repo,
+        route_target_event_repo,
         call_stats_repo,
         service_routes,
         http_client,
