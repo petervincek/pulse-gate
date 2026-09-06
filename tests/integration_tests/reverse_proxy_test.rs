@@ -1,6 +1,7 @@
 use anyhow::Result;
 use pulse_gate::{
-    core::config::common::ConfigManager, model::connection_postgres::build_postgres_pool,
+    core::config::common::ConfigManager,
+    model::{connection_postgres::build_postgres_pool, route_target::RouteTargetRepo},
 };
 use reqwest::{StatusCode, header::AUTHORIZATION};
 use serde_json::{Value, json};
@@ -15,10 +16,8 @@ async fn reset_route_targets(test_infra: &TestInfra) -> Result<EnvRestore> {
     let app_config = ConfigManager::new(Some(config_dir_tmp.path().to_path_buf()))
         .load_or_create()?
         .merge_with_env();
-    let pg_pool = build_postgres_pool(&app_config).await?;
-
-    sqlx::query("TRUNCATE TABLE route_target")
-        .execute(&pg_pool)
+    RouteTargetRepo::new(build_postgres_pool(&app_config).await?)
+        .clear_all()
         .await?;
 
     Ok(env_restore)

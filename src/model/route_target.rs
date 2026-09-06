@@ -126,4 +126,11 @@ impl RouteTargetRepo {
             Ok(())
         }
     }
+
+    pub async fn clear_all(&self) -> Result<()> {
+        sqlx::query("TRUNCATE TABLE route_target")
+            .execute(&self.pg_pool)
+            .await?;
+        Ok(())
+    }
 }

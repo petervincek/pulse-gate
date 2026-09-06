@@ -15,12 +15,10 @@ async fn setup_route_target_repo() -> Result<(RouteTargetRepo, sqlx::PgPool)> {
     let config_manager = ConfigManager::new(Some(config_dir_tmp.path().to_path_buf()));
     let app_config = config_manager.load_or_create()?.merge_with_env();
     let postgres_pool = build_postgres_pool(&app_config).await?;
+    let route_target_repo = RouteTargetRepo::new(postgres_pool.clone());
+    route_target_repo.clear_all().await?;
 
-    sqlx::query("TRUNCATE TABLE route_target")
-        .execute(&postgres_pool)
-        .await?;
-
-    Ok((RouteTargetRepo::new(postgres_pool.clone()), postgres_pool))
+    Ok((route_target_repo, postgres_pool))
 }
 
 fn route_target(
@@ -235,6 +233,53 @@ async fn delete_route_target_by_path_prefix_fails_for_missing_route() -> Result<
         .await;
 
     assert!(result.is_err());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn clear_all_removes_all_route_targets_from_the_repository() -> Result<()> {
+    let test_infra = TestInfra::get_infra().await;
+    let _lock = test_infra.lock.lock().await;
+    let _env_restore = test_infra.export_env_variables(None);
+
+    let (repo, _) = setup_route_target_repo().await?;
+
+    repo.create_route_target(route_target(
+        "/first",
+        "http://first.internal",
+        10,
+        Some("first-role"),
+    ))
+    .await?;
+    repo.create_route_target(route_target(
+        "/second",
+        "http://second.internal",
+        20,
+        Some("second-role"),
+    ))
+    .await?;
+
+    repo.clear_all().await?;
+
+    let routes = repo.list_route_targets().await?;
+    assert!(routes.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn clear_all_is_idempotent_when_repository_is_already_empty() -> Result<()> {
+    let test_infra = TestInfra::get_infra().await;
+    let _lock = test_infra.lock.lock().await;
+    let _env_restore = test_infra.export_env_variables(None);
+
+    let (repo, _) = setup_route_target_repo().await?;
+
+    repo.clear_all().await?;
+
+    let routes = repo.list_route_targets().await?;
+    assert!(routes.is_empty());
 
     Ok(())
 }
