@@ -1,0 +1,52 @@
+name: Rust CI
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.0
+          components: llvm-tools-preview
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang pkg-config libssl-dev libcurl4-openssl-dev cmake
+
+      - name: Install coverage tool
+        run: cargo install cargo-llvm-cov
+
+      - name: Build
+        run: make build
+
+      - name: Run tests
+        run: make test CLEANUP_MINUTES=30
+
+      - name: Run coverage
+        run: make coverage-lcov
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage
+          path: lcov.info

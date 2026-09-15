@@ -1,3 +1,9 @@
+CLEANUP_MINUTES ?= 15
+CLEANUP_NO_TIME_FILTER ?= true
+CLEANUP_LABEL_KEY ?= pulse-gate-test
+CLEANUP_LABEL_VALUE ?= true
+CLEANUP_NAME_PREFIX ?= pulse-gate-test-
+
 # Define the target: build (will download the dependencies and compile the project)
 build:
 	cargo build
@@ -16,7 +22,15 @@ update:
 
 # Define the target: test
 test:
-	cargo test
+	@bash -lc 'cargo test -- --nocapture; TEST_STATUS=$$?; ./scripts/container-cleanup.sh --label $(CLEANUP_LABEL_KEY) $(CLEANUP_LABEL_VALUE) --name-prefix $(CLEANUP_NAME_PREFIX) $(if $(filter true,$(CLEANUP_NO_TIME_FILTER)),--no-time-filter,$(CLEANUP_MINUTES)) -y || true; exit $$TEST_STATUS'
+
+# Define the target: coverage
+coverage:
+	@bash -lc 'cargo llvm-cov --workspace --html; COVERAGE_STATUS=$$?; ./scripts/container-cleanup.sh --label $(CLEANUP_LABEL_KEY) $(CLEANUP_LABEL_VALUE) --name-prefix $(CLEANUP_NAME_PREFIX) $(if $(filter true,$(CLEANUP_NO_TIME_FILTER)),--no-time-filter,$(CLEANUP_MINUTES)) -y || true; exit $$COVERAGE_STATUS'
+
+# Define the target: coverage-lcov
+coverage-lcov:
+	@bash -lc 'cargo llvm-cov --workspace --lcov --output-path lcov.info; COVERAGE_STATUS=$$?; ./scripts/container-cleanup.sh --label $(CLEANUP_LABEL_KEY) $(CLEANUP_LABEL_VALUE) --name-prefix $(CLEANUP_NAME_PREFIX) $(if $(filter true,$(CLEANUP_NO_TIME_FILTER)),--no-time-filter,$(CLEANUP_MINUTES)) -y || true; exit $$COVERAGE_STATUS'
 
 # Define the target: check
 check:

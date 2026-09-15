@@ -1,0 +1,136 @@
+{
+  "realm": "gateway-realm",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "user",
+        "description": "Standard test user role"
+      },
+      {
+        "name": "admin",
+        "description": "Administrator test role"
+      },
+      {
+        "name": "target-service-a",
+        "description": "Role required to access proxied upstream services"
+      },
+      {
+        "name": "target-service-down",
+        "description": "Role required to access proxied upstream services"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "axum-service",
+      "name": "Axum Backend Client",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "axum-test-secret-12345",
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "serviceAccountsEnabled": true,
+      "redirectUris": [
+        "*"
+      ],
+      "webOrigins": [
+        "*"
+      ]
+    },
+    {
+      "clientId": "pulse-gate-admin",
+      "name": "Pulse Gate Admin Client",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "pulse-gate-admin-secret",
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "redirectUris": [
+        "*"
+      ],
+      "webOrigins": [
+        "*"
+      ]
+    },
+    {
+      "clientId": "client-x-service",
+      "name": "Target Service A Client",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "client-x-service-secret",
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "redirectUris": [
+        "*"
+      ],
+      "webOrigins": [
+        "*"
+      ]
+    },
+    {
+      "clientId": "client-y-service",
+      "name": "Target Service Y Client (target service is down)",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "client-y-service-secret",
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "redirectUris": [
+        "*"
+      ],
+      "webOrigins": [
+        "*"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "testuser",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "email": "testuser@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "user"
+      ]
+    },
+    {
+      "username": "service-account-pulse-gate-admin",
+      "enabled": true,
+      "serviceAccountClientId": "pulse-gate-admin",
+      "realmRoles": [
+        "admin"
+      ]
+    },
+    {
+      "username": "service-account-client-x-service",
+      "enabled": true,
+      "serviceAccountClientId": "client-x-service",
+      "realmRoles": [
+        "target-service-a"
+      ]
+    },
+    {
+      "username": "service-account-client-y-service",
+      "enabled": true,
+      "serviceAccountClientId": "client-y-service",
+      "realmRoles": [
+        "target-service-down"
+      ]
+    }
+  ]
+}
