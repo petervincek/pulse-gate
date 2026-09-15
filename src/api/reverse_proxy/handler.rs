@@ -1,9 +1,13 @@
 use axum::{Extension, body::Body, extract::State, http, response::Response};
+use chrono::Utc;
 use hyper::{HeaderMap, Method, StatusCode, Uri};
 use std::time::Instant;
 use tracing::{debug, warn};
 
-use crate::{app::state::AppState, service::keycloak::VerifiedPrincipal};
+use crate::{
+    app::state::AppState, model::api_usage_event::ApiUsageEvent,
+    service::keycloak::VerifiedPrincipal,
+};
 
 /// `dynamic_proxy_handler` is the main handler function that will try to get the route target config
 /// and will try to prepare the request to forward/stream it to the target destination and will try to stream
@@ -109,6 +113,19 @@ pub async fn dynamic_proxy_handler(
             bucket = %rate_limit_decision.bucket,
             "Client exceeded per-minute rate limit for target"
         );
+        // emit rejected event
+        let event = ApiUsageEvent {
+            client_id: client_id.to_string(),
+            target_id: prefix.to_string(),
+            route_prefix: prefix.to_string(),
+            method: method.to_string(),
+            status: "rate_limited".to_string(),
+            response_code: Some(429),
+            upstream_host: Some(target_config.upstream_base_url.clone()),
+            occurred_at: Utc::now(),
+        };
+
+        state.usage_event_bus.emit(event).await;
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
@@ -148,7 +165,7 @@ pub async fn dynamic_proxy_handler(
     })?;
 
     // 5. Construct Forwarding Request
-    let mut req_builder = state.http_client.request(method, target_uri);
+    let mut req_builder = state.http_client.request(method.clone(), target_uri);
 
     // Copy incoming headers (excluding host-specific headers)
     let mut forwarded_headers = 0usize;
@@ -197,6 +214,19 @@ pub async fn dynamic_proxy_handler(
         response_headers = upstream_resp.headers().len(),
         "Received response from upstream service"
     );
+
+    let event = ApiUsageEvent {
+        client_id: client_id.to_string(),
+        target_id: prefix.to_string(),
+        route_prefix: prefix.to_string(),
+        method: method.to_string(),
+        status: "success".to_string(),
+        response_code: Some(status.as_u16() as i32),
+        upstream_host: Some(target_config.upstream_base_url.clone()),
+        occurred_at: Utc::now(),
+    };
+
+    state.usage_event_bus.emit(event).await;
 
     let mut response_builder = Response::builder().status(status);
 

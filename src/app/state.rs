@@ -8,6 +8,7 @@ use sqlx::PgPool;
 use crate::{
     api::middleware::authentication::AuthService,
     model::{
+        api_usage_event::UsageEventBus,
         call_stats::CallStatsRepo,
         route_target::{PathPrefix, RouteTarget, RouteTargetRepo},
         route_target_event::RouteTargetEventRepo,
@@ -24,6 +25,7 @@ pub struct AppState {
     pub call_stats_repo: Arc<CallStatsRepo>, // shared repository for Redis-based call and rate-limit tracking
     pub service_routes: Arc<DashMap<PathPrefix, RouteTarget>>, // concurrent map for PathPrefix -> RouteTarget
     pub http_client: Client,                                   // smart pointer for http client
+    pub usage_event_bus: Arc<UsageEventBus>,                   // smart pointer for usage event bus
     pub service_name: String,
 }
 
@@ -37,6 +39,7 @@ impl AppState {
         call_stats_repo: Arc<CallStatsRepo>,
         service_routes: Arc<DashMap<PathPrefix, RouteTarget>>,
         http_client: Client,
+        usage_event_bus: Arc<UsageEventBus>,
         service_name: impl Into<String>,
     ) -> Self {
         Self {
@@ -48,6 +51,7 @@ impl AppState {
             call_stats_repo,
             service_routes,
             http_client,
+            usage_event_bus,
             service_name: service_name.into(),
         }
     }

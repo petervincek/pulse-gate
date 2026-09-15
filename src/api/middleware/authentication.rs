@@ -180,7 +180,11 @@ mod tests {
         },
         app::state::AppState,
         model::{
-            call_stats::CallStatsRepo, route_target::RouteTargetRepo,
+            api_usage_event::{
+                ApiUsageEvent, UsageEventBus, UsageEventRepo, run_usage_event_worker,
+            },
+            call_stats::CallStatsRepo,
+            route_target::RouteTargetRepo,
             route_target_event::RouteTargetEventRepo,
         },
         service::keycloak::{
@@ -270,6 +274,12 @@ mod tests {
         let route_target_repo = Arc::new(RouteTargetRepo::new(postgres_pool.clone()));
         let route_target_event_repo = Arc::new(RouteTargetEventRepo::new(redis_pool.clone()));
         let call_stats_repo = Arc::new(CallStatsRepo::new(redis_pool.clone()));
+        let (tx, rx) = tokio::sync::mpsc::channel::<ApiUsageEvent>(8);
+        let usage_event_bus = Arc::new(UsageEventBus::new(tx));
+        let usage_event_repo = UsageEventRepo::new(postgres_pool.clone());
+        tokio::spawn(async move {
+            run_usage_event_worker(rx, usage_event_repo).await;
+        });
 
         AppState::new(
             redis_pool,
@@ -280,6 +290,7 @@ mod tests {
             call_stats_repo,
             service_routes,
             Client::new(),
+            usage_event_bus,
             "test-service",
         )
     }

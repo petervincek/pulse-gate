@@ -1,3 +1,4 @@
+pub mod api_usage_event_repository_test;
 pub mod call_stats_repository_test;
 pub mod health_check_test;
 pub mod manage_route_target_api_test;

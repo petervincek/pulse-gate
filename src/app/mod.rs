@@ -5,12 +5,14 @@ use axum::Router;
 use dashmap::DashMap;
 use openidconnect::reqwest::Client;
 use reqwest::Client as ReqwestClient;
+use tracing::debug;
 
 use crate::{
     api::{health::health_router, manage::manage_router, reverse_proxy::dynamic_proxy_router},
     app::state::AppState,
     core::config::common::AppConfig,
     model::{
+        api_usage_event::{ApiUsageEvent, UsageEventBus, UsageEventRepo, run_usage_event_worker},
         call_stats::CallStatsRepo,
         connection_postgres::build_postgres_pool,
         connection_redis::build_redis_pool,
@@ -81,6 +83,17 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
     // create http client
     let http_client = ReqwestClient::default();
 
+    // create the usage event bus
+    let (tx, rx) = tokio::sync::mpsc::channel::<ApiUsageEvent>(100);
+    let usage_event_bus = Arc::new(UsageEventBus::new(tx));
+    // trigger asynchronous event listener for event: 'ApiUsageEvent'
+    let usage_event_repo = UsageEventRepo::new(postgres_pool.clone());
+    tokio::spawn(async move {
+        // this will trigger a loop to receive events from a bus
+        debug!("Starting the background thread to process api usage events from event bus");
+        run_usage_event_worker(rx, usage_event_repo).await;
+    });
+
     // create application state with shared dependencies
     let app_state = AppState::new(
         redis_pool,
@@ -91,6 +104,7 @@ pub async fn create_app_router(app_config: &AppConfig) -> Result<Router> {
         call_stats_repo,
         service_routes,
         http_client,
+        usage_event_bus,
         "PulseGate",
     );
 
